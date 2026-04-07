@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import PrepareModal from './PrepareModal'
+import EditWorkout from './EditWorkout'
 
-const TRACKS = ['Strength & Conditioning', 'Babes Who Fight Bears', 'Open Track']
 const TC = { 'Strength & Conditioning': 'track-strength', 'Babes Who Fight Bears': 'track-bears', 'Open Track': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
 
 function formatDate(d) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 }
-
-function toISO(d) {
-  return d.toISOString().split('T')[0]
-}
+function toISO(d) { return d.toISOString().split('T')[0] }
 
 export default function Workouts({ user, profile }) {
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -20,17 +17,18 @@ export default function Workouts({ user, profile }) {
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
   const [prepare, setPrepare] = useState(null)
+  const [editing, setEditing] = useState(null)
   const [toast, setToast] = useState(null)
+  const isCoach = profile?.role === 'coach'
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
   const fetchWorkouts = useCallback(async () => {
     setLoading(true)
-    const iso = toISO(currentDate)
     const { data, error } = await supabase
       .from('workouts')
       .select(`*, workout_sections(*, movements(*)), results(*, profiles(name, avatar_url), reactions(*))`)
-      .eq('date', iso)
+      .eq('date', toISO(currentDate))
       .order('id', { ascending: false })
     if (!error) {
       setWorkouts(data || [])
@@ -44,16 +42,14 @@ export default function Workouts({ user, profile }) {
   const prevDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 1); setCurrentDate(d) }
   const nextDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 1); setCurrentDate(d) }
   const goToday = () => setCurrentDate(new Date())
-
   const isToday = toISO(currentDate) === toISO(new Date())
   const isFuture = toISO(currentDate) > toISO(new Date())
 
   const logResult = async (workoutId, score, note) => {
-    const { error } = await supabase.from('results').upsert({
-      workout_id: workoutId,
-      athlete_id: user.id,
-      score, note
-    }, { onConflict: 'workout_id,athlete_id' })
+    const { error } = await supabase.from('results').upsert(
+      { workout_id: workoutId, athlete_id: user.id, score, note },
+      { onConflict: 'workout_id,athlete_id' }
+    )
     if (!error) { showToast('Result logged'); fetchWorkouts() }
   }
 
@@ -64,6 +60,14 @@ export default function Workouts({ user, profile }) {
       await supabase.from('reactions').insert({ result_id: resultId, athlete_id: user.id, type })
     }
     fetchWorkouts()
+  }
+
+  // Pull strength/skills movement names for Prepare — falls back to all movements
+  const getStrengthMovements = (workout) => {
+    const sections = workout.workout_sections || []
+    const strengthSecs = sections.filter(s => ['Strength', 'Skills'].includes(s.type))
+    const target = strengthSecs.length > 0 ? strengthSecs : sections
+    return target.flatMap(s => (s.movements || []).map(m => m.name)).filter(Boolean)
   }
 
   return (
@@ -91,38 +95,51 @@ export default function Workouts({ user, profile }) {
           key={w.id}
           workout={w}
           user={user}
-          profile={profile}
+          isCoach={isCoach}
           isFuture={isFuture}
           expanded={expandedId === w.id}
           onToggle={() => setExpandedId(expandedId === w.id ? null : w.id)}
           onLogResult={logResult}
           onToggleReaction={toggleReaction}
-          onPrepare={() => setPrepare(w)}
+          onPrepare={() => setPrepare({ workout: w, movementNames: getStrengthMovements(w) })}
+          onEdit={() => setEditing(w)}
         />
       ))}
 
-      {prepare && <PrepareModal workout={prepare} user={user} onClose={() => setPrepare(null)} />}
+      {prepare && (
+        <PrepareModal
+          workout={prepare.workout}
+          movementNames={prepare.movementNames}
+          user={user}
+          onClose={() => setPrepare(null)}
+        />
+      )}
+
+      {editing && (
+        <EditWorkout
+          workout={editing}
+          onSaved={() => { setEditing(null); fetchWorkouts(); showToast('Workout updated') }}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
 
-function WorkoutCard({ workout, user, profile, isFuture, expanded, onToggle, onLogResult, onToggleReaction, onPrepare }) {
+function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogResult, onToggleReaction, onPrepare, onEdit }) {
   const [score, setScore] = useState('')
   const [note, setNote] = useState('')
-
   const myResult = workout.results?.find(r => r.athlete_id === user.id)
-  const sections = workout.workout_sections?.sort((a, b) => a.order_index - b.order_index) || []
-
+  const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
   const sorted = [...(workout.results || [])].sort((a, b) => {
     const av = parseFloat(a.score), bv = parseFloat(b.score)
     if (!isNaN(av) && !isNaN(bv)) return bv - av
     return (a.score || '').localeCompare(b.score || '')
   })
-
   const rankClass = i => ['gold', 'silver', 'bronze'][i] || 'other'
   const rankSym = i => ['1', '2', '3'][i] || String(i + 1)
-
   const submit = async () => {
     if (!score.trim()) return
     await onLogResult(workout.id, score.trim(), note.trim())
@@ -139,7 +156,15 @@ function WorkoutCard({ workout, user, profile, isFuture, expanded, onToggle, onL
             {isFuture && <span className="future-badge">Upcoming</span>}
           </div>
         </div>
-        <span style={{ color: 'var(--charcoal-light)', fontSize: '18px' }}>{expanded ? '−' : '+'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {isCoach && (
+            <button className="btn-ghost" style={{ fontSize: '10px' }}
+              onClick={e => { e.stopPropagation(); onEdit() }}>
+              Edit
+            </button>
+          )}
+          <span style={{ color: 'var(--charcoal-light)', fontSize: '18px' }}>{expanded ? '−' : '+'}</span>
+        </div>
       </div>
 
       {expanded && (
@@ -189,13 +214,13 @@ function WorkoutCard({ workout, user, profile, isFuture, expanded, onToggle, onL
               <div className="leaderboard">
                 <div className="lb-title">Leaderboard · {sorted.length} {sorted.length === 1 ? 'athlete' : 'athletes'}</div>
                 {sorted.map((r, i) => {
-                  const initials = (r.profiles?.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+                  const ini = (r.profiles?.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
                   return (
                     <div key={r.id} className="lb-row">
                       <span className={`lb-rank ${rankClass(i)}`}>{rankSym(i)}</span>
                       {r.profiles?.avatar_url
                         ? <img src={r.profiles.avatar_url} className="lb-avatar" alt="" />
-                        : <div className="lb-avatar-placeholder">{initials}</div>
+                        : <div className="lb-avatar-placeholder">{ini}</div>
                       }
                       <span className="lb-name">
                         {r.profiles?.name || 'Athlete'}
