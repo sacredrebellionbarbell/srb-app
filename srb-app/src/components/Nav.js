@@ -1,5 +1,5 @@
 import React from 'react'
-const logo = process.env.PUBLIC_URL + '/logo.jpg'
+import logo from '../assets/logo.jpg'
   export default function Nav({ user, profile, tab, setTab, onLogout }) {
   const initials = (profile?.name || user?.email || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
   const isCoach = profile?.role === 'coach'
