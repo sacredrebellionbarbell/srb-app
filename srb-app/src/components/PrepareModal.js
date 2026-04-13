@@ -5,7 +5,7 @@ const PCTS = [50, 60, 70, 80, 85, 90, 95]
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
-function xReps(n) { const m = (n || '').match(/(\d+)\s*rep/i); return m ? parseInt(m[1]) : 1 }
+function xReps(s) { const m = (s || '').match(/^(\d+)/); return m ? parseInt(m[1]) : 1 }
 
 function parseLoad(load) {
   if (!load) return null
@@ -13,9 +13,9 @@ function parseLoad(load) {
   if (rangeMatch) return { type: 'pct_range', low: parseFloat(rangeMatch[1]), high: parseFloat(rangeMatch[2]) }
   const pctMatch = load.match(/(\d+\.?\d*)\s*%/)
   if (pctMatch) return { type: 'pct', value: parseFloat(pctMatch[1]) }
-  const lbsRangeMatch = load.match(/(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*(lbs?|kg)?/)
+  const lbsRangeMatch = load.match(/(\d+\.?\d*)\s*-\s*(\d+\.?\d*)/)
   if (lbsRangeMatch) return { type: 'lbs_range', low: parseFloat(lbsRangeMatch[1]), high: parseFloat(lbsRangeMatch[2]) }
-  const lbsMatch = load.match(/(\d+\.?\d*)\s*(lbs?|kg)?/)
+  const lbsMatch = load.match(/(\d+\.?\d*)/)
   if (lbsMatch) return { type: 'lbs', value: parseFloat(lbsMatch[1]) }
   return null
 }
@@ -37,19 +37,25 @@ function formatWeight(w) {
 }
 
 export default function PrepareModal({ workout, movements, user, onClose }) {
-  const [allResults, setAllResults] = useState([])
+  const [setLogs, setSetLogs] = useState([])
   const [mw, setMw] = useState('')
   const [mr, setMr] = useState('1')
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   useEffect(() => {
     const fetch = async () => {
+      // Pull from set_logs for this athlete — much more accurate than workout-level results
       const { data } = await supabase
-        .from('results')
-        .select('score, note, workouts(title, date, workout_sections(type, movements(name)))')
+        .from('set_logs')
+        .select(`
+          value,
+          sets(reps, load, set_number),
+          movements(name),
+          workouts(title, date)
+        `)
         .eq('athlete_id', user.id)
         .order('created_at', { ascending: false })
-      setAllResults((data || []).filter(r => xWeight(r.score) !== null))
+      setSetLogs(data || [])
     }
     fetch()
   }, [user])
@@ -58,23 +64,39 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
   const selectedName = selectedMovement?.name || ''
   const selectedSets = selectedMovement?.sets || []
 
-  const matchingResults = useMemo(() => {
+  // Find past logs for this specific movement name
+  const matchingLogs = useMemo(() => {
     if (!selectedName) return []
-    return allResults.filter(r => {
-      const mvNames = (r.workouts?.workout_sections || []).flatMap(s => s.movements || []).map(m => m.name?.toLowerCase())
-      return mvNames.includes(selectedName.toLowerCase())
-    })
-  }, [allResults, selectedName])
+    return setLogs.filter(sl =>
+      sl.movements?.name?.toLowerCase() === selectedName.toLowerCase() &&
+      xWeight(sl.value) !== null
+    )
+  }, [setLogs, selectedName])
 
   const oneRM = useMemo(() => {
     if (mw && parseFloat(mw) > 0) return epley(parseFloat(mw), parseInt(mr) || 1)
-    if (!matchingResults.length) return null
+    if (!matchingLogs.length) return null
     let best = 0
-    matchingResults.forEach(r => { const e = epley(xWeight(r.score), xReps(r.note)); if (e > best) best = e })
+    matchingLogs.forEach(sl => {
+      const w = xWeight(sl.value)
+      const r = xReps(sl.sets?.reps)
+      if (w) { const e = epley(w, r); if (e > best) best = e }
+    })
     return best > 0 ? best : null
-  }, [mw, mr, matchingResults])
+  }, [mw, mr, matchingLogs])
 
   const hasPctSets = selectedSets.some(st => st.load && st.load.includes('%'))
+
+  // Group matching logs by workout for display
+  const pastByWorkout = useMemo(() => {
+    const map = {}
+    matchingLogs.forEach(sl => {
+      const key = sl.workouts?.date + sl.workouts?.title
+      if (!map[key]) map[key] = { title: sl.workouts?.title, date: sl.workouts?.date, sets: [] }
+      map[key].sets.push({ setNumber: sl.sets?.set_number, reps: sl.sets?.reps, value: sl.value })
+    })
+    return Object.values(map).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  }, [matchingLogs])
 
   return (
     <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
@@ -159,14 +181,21 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
           )}
 
           <div className="past-title">Past Results — {selectedName}</div>
-          {matchingResults.length === 0
+          {pastByWorkout.length === 0
             ? <p style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>No results logged for this movement yet.</p>
-            : matchingResults.slice(0, 6).map((r, i) => (
-              <div key={i} className="past-row">
-                <span style={{ flex: 1, color: 'var(--bone)', fontSize: '14px' }}>{r.workouts?.title}</span>
-                <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '14px' }}>{r.score}</span>
-                {r.note && <span style={{ fontSize: '12px', color: 'var(--moss-light)' }}>{r.note}</span>}
-                <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{r.workouts?.date}</span>
+            : pastByWorkout.slice(0, 5).map((w, i) => (
+              <div key={i} style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--bone)' }}>{w.title}</span>
+                  <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{w.date}</span>
+                </div>
+                {w.sets.sort((a, b) => a.setNumber - b.setNumber).map((s, si) => (
+                  <div key={si} style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '2px 0 2px 8px' }}>
+                    <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {s.setNumber}</span>
+                    {s.reps && <span style={{ color: 'var(--bone)' }}>{s.reps} reps</span>}
+                    <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', marginLeft: 'auto' }}>{s.value}</span>
+                  </div>
+                ))}
               </div>
             ))
           }
