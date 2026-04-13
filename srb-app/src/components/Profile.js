@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const TC = { 'Strength & Conditioning': 'track-strength', 'Babes Who Fight Bears': 'track-bears', 'Open Track': 'track-open' }
+const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
@@ -13,17 +14,18 @@ function initials(name) { return (name || '?').split(' ').map(n => n[0]).join(''
 export default function Profile({ user, profile, onProfileUpdate }) {
   const [results, setResults] = useState([])
   const [prs, setPrs] = useState([])
+  const [attendance, setAttendance] = useState([])
   const [uploading, setUploading] = useState(false)
   const [editName, setEditName] = useState(false)
   const [newName, setNewName] = useState(profile?.name || '')
+  const [phone, setPhone] = useState(profile?.phone || '')
+  const [editPhone, setEditPhone] = useState(false)
   const [toast, setToast] = useState(null)
   const fileRef = useRef()
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
-  useEffect(() => {
-    fetchResults()
-  }, [user])
+  useEffect(() => { fetchResults(); fetchAttendance() }, [user])
 
   const fetchResults = async () => {
     const { data } = await supabase
@@ -31,10 +33,16 @@ export default function Profile({ user, profile, onProfileUpdate }) {
       .select('*, workouts(title, date, track, workout_sections(movements(*)))')
       .eq('athlete_id', user.id)
       .order('created_at', { ascending: false })
-    if (data) {
-      setResults(data)
-      buildPRs(data)
-    }
+    if (data) { setResults(data); buildPRs(data) }
+  }
+
+  const fetchAttendance = async () => {
+    const { data } = await supabase
+      .from('class_signups')
+      .select('*, classes(title, start_time, is_247)')
+      .eq('athlete_id', user.id)
+      .order('signed_up_at', { ascending: false })
+    setAttendance(data || [])
   }
 
   const buildPRs = (data) => {
@@ -59,7 +67,7 @@ export default function Profile({ user, profile, onProfileUpdate }) {
     const ext = file.name.split('.').pop()
     const path = `avatars/${user.id}.${ext}`
     const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
-    if (upErr) { showToast('Upload failed'); setUploading(false); return }
+    if (upErr) { showToast('Upload failed: ' + upErr.message); setUploading(false); return }
     const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
     await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
     onProfileUpdate()
@@ -69,11 +77,20 @@ export default function Profile({ user, profile, onProfileUpdate }) {
 
   const saveName = async () => {
     await supabase.from('profiles').update({ name: newName }).eq('id', user.id)
-    onProfileUpdate()
-    setEditName(false)
-    showToast('Name updated')
+    onProfileUpdate(); setEditName(false); showToast('Name updated')
   }
 
+  const savePhone = async () => {
+    await supabase.from('profiles').update({ phone }).eq('id', user.id)
+    onProfileUpdate(); setEditPhone(false); showToast('Phone updated')
+  }
+
+  const totalClasses = attendance.filter(a => !a.classes?.is_247).length
+  const total247 = attendance.filter(a => a.classes?.is_247).length
+  const thisMonth = attendance.filter(a => {
+    const d = new Date(a.signed_up_at); const now = new Date()
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  }).length
   const prCount = results.filter(r => r.note?.toLowerCase().includes('pr')).length
 
   return (
@@ -91,24 +108,62 @@ export default function Profile({ user, profile, onProfileUpdate }) {
 
           <div style={{ flex: 1 }}>
             {editName
-              ? <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+              ? <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
                   <input className="ws-notes" style={{ maxWidth: '220px' }} value={newName} onChange={e => setNewName(e.target.value)} />
                   <button className="btn-sm" onClick={saveName}>Save</button>
                   <button className="btn-ghost" onClick={() => setEditName(false)}>Cancel</button>
                 </div>
-              : <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              : <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                   <div className="profile-name">{profile?.name || user.email}</div>
-                  <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setEditName(true)}>Edit</button>
+                  <button className="btn-ghost" onClick={() => setEditName(true)}>Edit</button>
                 </div>
             }
+
             <div className="profile-role">{profile?.role === 'coach' ? 'Head Coach' : 'Athlete'}</div>
+
+            {profile?.membership_type && (
+              <div style={{ marginTop: '6px' }}>
+                <span className={`membership-badge ${MEMBERSHIP_CLASS[profile.membership_type] || 'membership-none'}`}>{profile.membership_type}</span>
+              </div>
+            )}
+
+            <div style={{ marginTop: '10px' }}>
+              {editPhone
+                ? <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input className="ws-notes" style={{ maxWidth: '200px' }} value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 555-5555" />
+                    <button className="btn-sm" onClick={savePhone}>Save</button>
+                    <button className="btn-ghost" onClick={() => setEditPhone(false)}>Cancel</button>
+                  </div>
+                : <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '14px', color: profile?.phone ? 'var(--bone)' : 'var(--charcoal-light)' }}>{profile?.phone || 'No phone number'}</span>
+                    <button className="btn-ghost" onClick={() => { setPhone(profile?.phone || ''); setEditPhone(true) }}>{profile?.phone ? 'Edit' : 'Add Phone'}</button>
+                  </div>
+              }
+            </div>
+
             <div className="stat-row">
-              <div><div className="stat-val">{results.length}</div><div className="stat-label">Logged</div></div>
-              <div><div className="stat-val">{prs.length}</div><div className="stat-label">Movements</div></div>
+              <div><div className="stat-val">{results.length}</div><div className="stat-label">Workouts</div></div>
+              <div><div className="stat-val">{totalClasses}</div><div className="stat-label">Classes</div></div>
               <div><div className="stat-val">{prCount}</div><div className="stat-label">PRs</div></div>
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="pc" style={{ marginBottom: '1.5rem' }}>
+        <div className="pc-title">Attendance</div>
+        <div className="attendance-grid">
+          <div className="att-stat"><div className="att-val">{totalClasses + total247}</div><div className="att-label">Total</div></div>
+          <div className="att-stat"><div className="att-val">{thisMonth}</div><div className="att-label">This Month</div></div>
+          <div className="att-stat"><div className="att-val">{total247}</div><div className="att-label">24/7 Check-ins</div></div>
+        </div>
+        {attendance.slice(0, 8).map((a, i) => (
+          <div key={i} className="att-row">
+            <span className="att-class">{a.classes?.is_247 ? '24/7 Access' : a.classes?.title}</span>
+            {a.checkin_time && <span className="att-time">{a.checkin_time}</span>}
+            <span className="att-date">{a.classes?.start_time ? new Date(a.classes.start_time).toLocaleDateString() : new Date(a.signed_up_at).toLocaleDateString()}</span>
+          </div>
+        ))}
       </div>
 
       <div className="profile-grid">
@@ -127,7 +182,6 @@ export default function Profile({ user, profile, onProfileUpdate }) {
             ))
           }
         </div>
-
         <div className="pc">
           <div className="pc-title">Result History</div>
           {results.length === 0
@@ -149,15 +203,9 @@ export default function Profile({ user, profile, onProfileUpdate }) {
 
       <div className="panel" style={{ marginTop: '1.5rem' }}>
         <div className="panel-title">Membership</div>
-        <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '1.5rem' }}>
-          Manage your Sacred Rebellion membership below.
-        </p>
+        <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem' }}>Manage your Sacred Rebellion membership below.</p>
         <div className="stripe-wrap">
-          <stripe-pricing-table
-            pricing-table-id={STRIPE_TABLE_ID}
-            publishable-key={STRIPE_PK}
-            customer-email={user.email}
-          />
+          <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
         </div>
       </div>
 
