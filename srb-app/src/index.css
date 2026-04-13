@@ -2,7 +2,6 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Lato',sans-serif;background:var(--charcoal);color:var(--bone);min-height:100vh;font-size:17px}
 .app{min-height:100vh;display:flex;flex-direction:column;position:relative}
-.app::before{content:'';position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background-image:url('../assets/logo.jpg');;background-size:contain;background-repeat:no-repeat;background-position:center;opacity:0.04;pointer-events:none;z-index:0}
 .main{flex:1;padding:2rem 1.5rem;max-width:960px;margin:0 auto;width:100%;position:relative;z-index:1}
 .auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;position:relative;z-index:1}
 .auth-card{background:rgba(245,240,232,0.05);border:1px solid var(--border-strong);border-radius:4px;padding:3rem 2.5rem;width:100%;max-width:420px}
