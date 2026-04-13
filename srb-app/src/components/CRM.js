@@ -1,39 +1,3 @@
-import React, { useState, useEffect } from 'react'
-import { supabase } from '../supabaseClient'
-
-function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
-
-export default function CRM({ user }) {
-  const [members, setMembers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState(null)
-  const [msgText, setMsgText] = useState('')
-  const [toast, setToast] = useState(null)
-
-  const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
-
-  useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*, results(count), class_signups(count)')
-        .order('created_at', { ascending: false })
-      setMembers(data || [])
-      setLoading(false)
-    }
-    fetch()
-  }, [])
-
-  const promoteToCoach = async (id) => {
-    await supabase.from('profiles').update({ role: 'coach' }).eq('id', id)
-    setMembers(members.map(m => m.id === id ? { ...m, role: 'coach' } : m))
-    showToast('Role updated')
-  }
-
-  const sendEmail = (member) => {
-    const subject = encodeURIComponent('Sacred Rebellion Barbell')
-    const body = encodeURIComponent(msgText || '')
-    window.open(`mailto:${member.email || ''}?subject=${subject}&body=${body}`)
     showToast('Email client opened')
   }
 
