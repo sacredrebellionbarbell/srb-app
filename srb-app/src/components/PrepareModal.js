@@ -38,14 +38,15 @@ function formatWeight(w) {
 
 export default function PrepareModal({ workout, movements, user, onClose }) {
   const [setLogs, setSetLogs] = useState([])
+  const [legacyResults, setLegacyResults] = useState([])
   const [mw, setMw] = useState('')
   const [mr, setMr] = useState('1')
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   useEffect(() => {
     const fetch = async () => {
-      // Pull from set_logs for this athlete — much more accurate than workout-level results
-      const { data } = await supabase
+      // Pull from new set_logs table
+      const { data: slData } = await supabase
         .from('set_logs')
         .select(`
           value,
@@ -55,7 +56,15 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
         `)
         .eq('athlete_id', user.id)
         .order('created_at', { ascending: false })
-      setSetLogs(data || [])
+      setSetLogs(slData || [])
+
+      // Pull from legacy results table as fallback
+      const { data: rData } = await supabase
+        .from('results')
+        .select('score, note, workouts(title, date, workout_sections(type, movements(name)))')
+        .eq('athlete_id', user.id)
+        .order('created_at', { ascending: false })
+      setLegacyResults((rData || []).filter(r => xWeight(r.score) !== null))
     }
     fetch()
   }, [user])
@@ -64,8 +73,8 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
   const selectedName = selectedMovement?.name || ''
   const selectedSets = selectedMovement?.sets || []
 
-  // Find past logs for this specific movement name
-  const matchingLogs = useMemo(() => {
+  // New set_logs matching this movement
+  const matchingSetLogs = useMemo(() => {
     if (!selectedName) return []
     return setLogs.filter(sl =>
       sl.movements?.name?.toLowerCase() === selectedName.toLowerCase() &&
@@ -73,30 +82,52 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
     )
   }, [setLogs, selectedName])
 
+  // Legacy results matching this movement name
+  const matchingLegacy = useMemo(() => {
+    if (!selectedName) return []
+    return legacyResults.filter(r => {
+      const mvNames = (r.workouts?.workout_sections || [])
+        .flatMap(s => s.movements || [])
+        .map(m => m.name?.toLowerCase())
+      return mvNames.includes(selectedName.toLowerCase())
+    })
+  }, [legacyResults, selectedName])
+
   const oneRM = useMemo(() => {
     if (mw && parseFloat(mw) > 0) return epley(parseFloat(mw), parseInt(mr) || 1)
-    if (!matchingLogs.length) return null
+
     let best = 0
-    matchingLogs.forEach(sl => {
+
+    // Check set_logs first
+    matchingSetLogs.forEach(sl => {
       const w = xWeight(sl.value)
       const r = xReps(sl.sets?.reps)
       if (w) { const e = epley(w, r); if (e > best) best = e }
     })
+
+    // Fall back to legacy results
+    matchingLegacy.forEach(r => {
+      const w = xWeight(r.score)
+      const reps = xReps(r.note)
+      if (w) { const e = epley(w, reps); if (e > best) best = e }
+    })
+
     return best > 0 ? best : null
-  }, [mw, mr, matchingLogs])
+  }, [mw, mr, matchingSetLogs, matchingLegacy])
 
   const hasPctSets = selectedSets.some(st => st.load && st.load.includes('%'))
+  const hasAnyHistory = matchingSetLogs.length > 0 || matchingLegacy.length > 0
 
-  // Group matching logs by workout for display
+  // Group set_logs by workout for display
   const pastByWorkout = useMemo(() => {
     const map = {}
-    matchingLogs.forEach(sl => {
+    matchingSetLogs.forEach(sl => {
       const key = sl.workouts?.date + sl.workouts?.title
-      if (!map[key]) map[key] = { title: sl.workouts?.title, date: sl.workouts?.date, sets: [] }
+      if (!map[key]) map[key] = { title: sl.workouts?.title, date: sl.workouts?.date, sets: [], type: 'new' }
       map[key].sets.push({ setNumber: sl.sets?.set_number, reps: sl.sets?.reps, value: sl.value })
     })
     return Object.values(map).sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-  }, [matchingLogs])
+  }, [matchingSetLogs])
 
   return (
     <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
@@ -138,7 +169,9 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
               </div>
             : <div className="est-box">
                 <div className="est-label">No history for {selectedName}</div>
-                <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '6px' }}>Enter a weight and reps above to calculate</div>
+                <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '6px' }}>
+                  {hasAnyHistory ? 'Enter a weight and reps above to calculate' : 'No results logged for this movement yet — enter above to estimate'}
+                </div>
               </div>
           }
 
@@ -180,25 +213,48 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
             </>
           )}
 
-          <div className="past-title">Past Results — {selectedName}</div>
-          {pastByWorkout.length === 0
-            ? <p style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>No results logged for this movement yet.</p>
-            : pastByWorkout.slice(0, 5).map((w, i) => (
-              <div key={i} style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '13px', color: 'var(--bone)' }}>{w.title}</span>
-                  <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{w.date}</span>
-                </div>
-                {w.sets.sort((a, b) => a.setNumber - b.setNumber).map((s, si) => (
-                  <div key={si} style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '2px 0 2px 8px' }}>
-                    <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {s.setNumber}</span>
-                    {s.reps && <span style={{ color: 'var(--bone)' }}>{s.reps} reps</span>}
-                    <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', marginLeft: 'auto' }}>{s.value}</span>
+          {/* New set_logs history */}
+          {pastByWorkout.length > 0 && (
+            <>
+              <div className="past-title">Past Results — {selectedName}</div>
+              {pastByWorkout.slice(0, 5).map((w, i) => (
+                <div key={i} style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--bone)' }}>{w.title}</span>
+                    <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{w.date}</span>
                   </div>
-                ))}
-              </div>
-            ))
-          }
+                  {w.sets.sort((a, b) => a.setNumber - b.setNumber).map((s, si) => (
+                    <div key={si} style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '2px 0 2px 8px' }}>
+                      <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {s.setNumber}</span>
+                      {s.reps && <span style={{ color: 'var(--bone)' }}>{s.reps} reps</span>}
+                      <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', marginLeft: 'auto' }}>{s.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Legacy results fallback */}
+          {pastByWorkout.length === 0 && matchingLegacy.length > 0 && (
+            <>
+              <div className="past-title">Past Results — {selectedName}</div>
+              <p style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginBottom: '10px', fontStyle: 'italic' }}>From previous logging system</p>
+              {matchingLegacy.slice(0, 5).map((r, i) => (
+                <div key={i} className="past-row">
+                  <span style={{ flex: 1, color: 'var(--bone)', fontSize: '13px' }}>{r.workouts?.title}</span>
+                  <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '13px' }}>{r.score}</span>
+                  {r.note && <span style={{ fontSize: '12px', color: 'var(--moss-light)' }}>{r.note}</span>}
+                  <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{r.workouts?.date}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {!hasAnyHistory && pastByWorkout.length === 0 && (
+            <p style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>No results logged for this movement yet.</p>
+          )}
+
           <div className="formula">Epley: 1RM = weight × (1 + reps ÷ 30)</div>
         </div>
       </div>
