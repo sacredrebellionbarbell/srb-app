@@ -6,9 +6,7 @@ import EditWorkout from './EditWorkout'
 const TC = { 'Strength & Conditioning': 'track-strength', 'Babes Who Fight Bears': 'track-bears', 'Open Track': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
 
-function formatDate(d) {
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-}
+function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
 function toISO(d) { return d.toISOString().split('T')[0] }
 
 export default function Workouts({ user, profile }) {
@@ -25,15 +23,13 @@ export default function Workouts({ user, profile }) {
 
   const fetchWorkouts = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('workouts')
-      .select(`*, workout_sections(*, movements(*)), results(*, profiles(name, avatar_url), reactions(*))`)
+      .select(`*, workout_sections(*, movements(*, sets(*))), results(*, profiles(name, avatar_url), reactions(*))`)
       .eq('date', toISO(currentDate))
       .order('id', { ascending: false })
-    if (!error) {
-      setWorkouts(data || [])
-      if (data?.length > 0) setExpandedId(data[0].id)
-    }
+    setWorkouts(data || [])
+    if (data?.length > 0) setExpandedId(data[0].id)
     setLoading(false)
   }, [currentDate])
 
@@ -62,12 +58,11 @@ export default function Workouts({ user, profile }) {
     fetchWorkouts()
   }
 
-  // Pull strength/skills movement names for Prepare — falls back to all movements
   const getStrengthMovements = (workout) => {
     const sections = workout.workout_sections || []
     const strengthSecs = sections.filter(s => ['Strength', 'Skills'].includes(s.type))
     const target = strengthSecs.length > 0 ? strengthSecs : sections
-    return target.flatMap(s => (s.movements || []).map(m => m.name)).filter(Boolean)
+    return target.flatMap(s => (s.movements || []).map(m => ({ name: m.name, sets: m.sets || [] }))).filter(m => m.name)
   }
 
   return (
@@ -101,7 +96,7 @@ export default function Workouts({ user, profile }) {
           onToggle={() => setExpandedId(expandedId === w.id ? null : w.id)}
           onLogResult={logResult}
           onToggleReaction={toggleReaction}
-          onPrepare={() => setPrepare({ workout: w, movementNames: getStrengthMovements(w) })}
+          onPrepare={() => setPrepare({ workout: w, movements: getStrengthMovements(w) })}
           onEdit={() => setEditing(w)}
         />
       ))}
@@ -109,7 +104,7 @@ export default function Workouts({ user, profile }) {
       {prepare && (
         <PrepareModal
           workout={prepare.workout}
-          movementNames={prepare.movementNames}
+          movements={prepare.movements}
           user={user}
           onClose={() => setPrepare(null)}
         />
@@ -158,10 +153,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {isCoach && (
-            <button className="btn-ghost" style={{ fontSize: '10px' }}
-              onClick={e => { e.stopPropagation(); onEdit() }}>
-              Edit
-            </button>
+            <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={e => { e.stopPropagation(); onEdit() }}>Edit</button>
           )}
           <span style={{ color: 'var(--charcoal-light)', fontSize: '18px' }}>{expanded ? '−' : '+'}</span>
         </div>
@@ -175,12 +167,26 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
               <div key={sec.id} className="section-block">
                 <div className="section-block-title">{sec.type}</div>
                 {sec.notes && <p className="section-block-notes">{sec.notes}</p>}
-                {(sec.movements || []).sort((a, b) => a.order_index - b.order_index).map((m, i) => (
-                  <div key={i} className="movement-row">
-                    <span className="movement-name">{m.name}</span>
-                    <span className="movement-scheme">{m.scheme}</span>
-                  </div>
-                ))}
+                {(sec.movements || []).sort((a, b) => a.order_index - b.order_index).map((m, i) => {
+                  const sets = (m.sets || []).sort((a, b) => a.order_index - b.order_index)
+                  return (
+                    <div key={i} className="movement-block">
+                      <div className="movement-block-name">{m.name}</div>
+                      {m.notes && <div className="movement-notes-text">{m.notes}</div>}
+                      {sets.length > 0
+                        ? sets.map((st, si) => (
+                          <div key={si} className="set-row">
+                            <span className="set-number">Set {st.set_number}</span>
+                            {st.reps && <span className="set-reps">{st.reps} {parseInt(st.reps) === 1 ? 'rep' : 'reps'}</span>}
+                            {st.load && <span className="set-load">@ {st.load}</span>}
+                            {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
+                          </div>
+                        ))
+                        : m.scheme && <div className="set-row"><span className="set-load">{m.scheme}</span></div>
+                      }
+                    </div>
+                  )
+                })}
               </div>
             ))}
           </div>
@@ -202,8 +208,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                   </div>
                   <div className="field">
                     <label>Note</label>
-                    <input type="text" value={note} onChange={e => setNote(e.target.value)}
-                      placeholder="PR, 5 reps, scaling..." />
+                    <input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="PR, 5 reps, scaling..." />
                   </div>
                   <button className="btn-sm" onClick={submit}>Log It</button>
                 </div>
@@ -218,14 +223,8 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                   return (
                     <div key={r.id} className="lb-row">
                       <span className={`lb-rank ${rankClass(i)}`}>{rankSym(i)}</span>
-                      {r.profiles?.avatar_url
-                        ? <img src={r.profiles.avatar_url} className="lb-avatar" alt="" />
-                        : <div className="lb-avatar-placeholder">{ini}</div>
-                      }
-                      <span className="lb-name">
-                        {r.profiles?.name || 'Athlete'}
-                        {r.athlete_id === user.id && <span className="lb-you">you</span>}
-                      </span>
+                      {r.profiles?.avatar_url ? <img src={r.profiles.avatar_url} className="lb-avatar" alt="" /> : <div className="lb-avatar-placeholder">{ini}</div>}
+                      <span className="lb-name">{r.profiles?.name || 'Athlete'}{r.athlete_id === user.id && <span className="lb-you">you</span>}</span>
                       <span className="lb-score">{r.score}</span>
                       {r.note && <span className="lb-note">{r.note}</span>}
                       <div className="lb-reactions">
@@ -234,11 +233,9 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                           const hasReacted = rxArr.some(x => x.athlete_id === user.id)
                           const canReact = r.athlete_id !== user.id
                           return (
-                            <button key={rx.k}
-                              className={`reaction-btn ${hasReacted ? 'reacted' : ''}`}
+                            <button key={rx.k} className={`reaction-btn ${hasReacted ? 'reacted' : ''}`}
                               onClick={canReact ? () => onToggleReaction(r.id, rx.k, hasReacted) : undefined}
-                              style={!canReact ? { opacity: 0.3, cursor: 'default' } : {}}
-                            >
+                              style={!canReact ? { opacity: 0.3, cursor: 'default' } : {}}>
                               {rx.e}{rxArr.length > 0 && <span>{rxArr.length}</span>}
                             </button>
                           )
