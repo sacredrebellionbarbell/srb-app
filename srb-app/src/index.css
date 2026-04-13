@@ -242,11 +242,4 @@ body { font-family: 'Lato', sans-serif; background: var(--charcoal); color: var(
 .loading { display: flex; align-items: center; justify-content: center; min-height: 200px; font-family: 'Cinzel', serif; color: var(--gold-dark); letter-spacing: 2px; font-size: 14px; }
 .empty { text-align: center; padding: 4rem 2rem; color: var(--charcoal-light); }
 .empty h3 { font-family: 'Cinzel', serif; color: var(--gold-dark); font-size: 20px; margin-bottom: 0.5rem; }
-@media (max-width: 640px) {
-  .nav-tabs .nav-tab { padding: 8px 8px; font-size: 10px; }
-  .profile-grid { grid-template-columns: 1fr; }
-  .two-col { grid-template-columns: 1fr; }
-  .pct-grid { grid-template-columns: repeat(3, 1fr); }
-  .attendance-grid { grid-template-columns: repeat(2, 1fr); }
-  .set-builder-row { grid-template-columns: 28px 1fr 1fr 1fr auto; }
 }
