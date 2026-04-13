@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { supabase } from '../supabaseClient'
 
-const TRACKS = ['Strength & Conditioning', 'Babes Who Fight Bears', 'Open Track']
+const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
+const SCORE_TYPES = ['Heaviest Set', 'Shortest Time', 'Longest Time', 'Max Reps / Calories', 'Max Distance', 'No Score']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', notes: '', movements: [newMov()] } }
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
@@ -12,6 +13,7 @@ export default function PostWorkout({ onPosted }) {
   const today = new Date().toISOString().split('T')[0]
   const [title, setTitle] = useState('')
   const [track, setTrack] = useState(TRACKS[0])
+  const [scoreType, setScoreType] = useState(SCORE_TYPES[0])
   const [date, setDate] = useState(today)
   const [notes, setNotes] = useState('')
   const [secs, setSecs] = useState([newSec()])
@@ -21,52 +23,33 @@ export default function PostWorkout({ onPosted }) {
   const addSec = () => setSecs([...secs, newSec()])
   const rmSec = i => setSecs(secs.filter((_, j) => j !== i))
   const updSec = (i, f, v) => setSecs(secs.map((s, j) => j === i ? { ...s, [f]: v } : s))
-
   const addMov = i => setSecs(secs.map((s, j) => j === i ? { ...s, movements: [...s.movements, newMov()] } : s))
   const rmMov = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.filter((_, k) => k !== mi) } : s))
   const updMov = (si, mi, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, [f]: v } : m) } : s))
-
-  const addSet = (si, mi) => setSecs(secs.map((s, j) => j === si ? {
-    ...s, movements: s.movements.map((m, k) => k === mi ? {
-      ...m, sets: [...m.sets, newSet(m.sets.length + 1)]
-    } : m)
-  } : s))
-
-  const rmSet = (si, mi, sti) => setSecs(secs.map((s, j) => j === si ? {
-    ...s, movements: s.movements.map((m, k) => k === mi ? {
-      ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 }))
-    } : m)
-  } : s))
-
-  const updSet = (si, mi, sti, f, v) => setSecs(secs.map((s, j) => j === si ? {
-    ...s, movements: s.movements.map((m, k) => k === mi ? {
-      ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st)
-    } : m)
-  } : s))
+  const addSet = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: [...m.sets, newSet(m.sets.length + 1)] } : m) } : s))
+  const rmSet = (si, mi, sti) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : s))
+  const updSet = (si, mi, sti, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : s))
 
   const submit = async () => {
     if (!title.trim()) { setErr('Title is required'); return }
     setLoading(true); setErr('')
 
     const { data: workout, error: wErr } = await supabase
-      .from('workouts').insert({ title: title.trim(), track, date, notes: notes.trim() }).select().single()
+      .from('workouts').insert({ title: title.trim(), track, date, notes: notes.trim(), score_type: scoreType }).select().single()
     if (wErr) { setErr(wErr.message); setLoading(false); return }
 
     for (let si = 0; si < secs.length; si++) {
       const sec = secs[si]
       const validMovs = sec.movements.filter(m => m.name.trim())
       if (!validMovs.length) continue
-
       const { data: section } = await supabase
         .from('workout_sections').insert({ workout_id: workout.id, type: sec.type, notes: sec.notes, order_index: si }).select().single()
       if (!section) continue
-
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement } = await supabase
           .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
         if (!movement) continue
-
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) {
           await supabase.from('sets').insert(
@@ -90,10 +73,18 @@ export default function PostWorkout({ onPosted }) {
         <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
         <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       </div>
-      <div className="field">
-        <label>Track</label>
-        <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+
+      <div className="two-col">
+        <div className="field">
+          <label>Track</label>
+          <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+        </div>
+        <div className="field">
+          <label>Score Type</label>
+          <select value={scoreType} onChange={e => setScoreType(e.target.value)}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+        </div>
       </div>
+
       <div className="field">
         <label>General Notes</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Intent, scaling, cues..." />
@@ -107,7 +98,6 @@ export default function PostWorkout({ onPosted }) {
             {secs.length > 1 && <button className="btn-rm" onClick={() => rmSec(si)}>×</button>}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
-
           {sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
               <div className="mv-block-header">
@@ -115,7 +105,6 @@ export default function PostWorkout({ onPosted }) {
                 {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-
               <div className="set-builder-header">
                 <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
               </div>
@@ -135,7 +124,6 @@ export default function PostWorkout({ onPosted }) {
         </div>
       ))}
       <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
-
       <div style={{ marginTop: '1.5rem' }}>
         <button className="btn-primary" onClick={submit} disabled={loading}>{loading ? 'Posting...' : 'Post Workout'}</button>
       </div>
