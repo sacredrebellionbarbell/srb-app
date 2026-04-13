@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { supabase } from '../supabaseClient'
-import logo from '../assets/logo.jpg'
+const logo = '/logo.jpg'
 
 export default function Auth() {
   const [mode, setMode] = useState('login')
