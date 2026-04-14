@@ -3,9 +3,9 @@ import { supabase } from '../supabaseClient'
 
 const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
-const SCORE_TYPES = ['Heaviest Set', 'Shortest Time', 'Longest Time', 'Max Reps / Calories', 'Max Distance', 'No Score']
+const SCORE_TYPES = ['No Score', 'Heaviest Set', 'Shortest Time', 'Longest Time', 'Max Reps / Calories', 'Max Distance']
 
-function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', notes: '', movements: [newMov()] } }
+function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 
@@ -13,7 +13,6 @@ export default function PostWorkout({ onPosted }) {
   const today = new Date().toISOString().split('T')[0]
   const [title, setTitle] = useState('')
   const [track, setTrack] = useState(TRACKS[0])
-  const [scoreType, setScoreType] = useState(SCORE_TYPES[0])
   const [date, setDate] = useState(today)
   const [notes, setNotes] = useState('')
   const [secs, setSecs] = useState([newSec()])
@@ -35,16 +34,20 @@ export default function PostWorkout({ onPosted }) {
     setLoading(true); setErr('')
 
     const { data: workout, error: wErr } = await supabase
-      .from('workouts').insert({ title: title.trim(), track, date, notes: notes.trim(), score_type: scoreType }).select().single()
+      .from('workouts').insert({ title: title.trim(), track, date, notes: notes.trim() }).select().single()
     if (wErr) { setErr(wErr.message); setLoading(false); return }
 
     for (let si = 0; si < secs.length; si++) {
       const sec = secs[si]
       const validMovs = sec.movements.filter(m => m.name.trim())
       if (!validMovs.length) continue
+
       const { data: section } = await supabase
-        .from('workout_sections').insert({ workout_id: workout.id, type: sec.type, notes: sec.notes, order_index: si }).select().single()
+        .from('workout_sections')
+        .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
+        .select().single()
       if (!section) continue
+
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement } = await supabase
@@ -73,18 +76,10 @@ export default function PostWorkout({ onPosted }) {
         <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
         <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       </div>
-
-      <div className="two-col">
-        <div className="field">
-          <label>Track</label>
-          <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
-        </div>
-        <div className="field">
-          <label>Score Type</label>
-          <select value={scoreType} onChange={e => setScoreType(e.target.value)}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-        </div>
+      <div className="field">
+        <label>Track</label>
+        <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
       </div>
-
       <div className="field">
         <label>General Notes</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Intent, scaling, cues..." />
@@ -95,9 +90,11 @@ export default function PostWorkout({ onPosted }) {
         <div key={sec.id} className="ws-block">
           <div className="ws-head">
             <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
             {secs.length > 1 && <button className="btn-rm" onClick={() => rmSec(si)}>×</button>}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
+
           {sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
               <div className="mv-block-header">
