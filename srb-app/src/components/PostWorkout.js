@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient'
 
 const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
-const SCORE_TYPES = ['No Score', 'Heaviest Set', 'Shortest Time', 'Longest Time', 'Max Reps / Calories', 'Max Distance']
+const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
@@ -41,13 +41,11 @@ export default function PostWorkout({ onPosted }) {
       const sec = secs[si]
       const validMovs = sec.movements.filter(m => m.name.trim())
       if (!validMovs.length) continue
-
       const { data: section } = await supabase
         .from('workout_sections')
         .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
         .select().single()
       if (!section) continue
-
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement } = await supabase
@@ -93,7 +91,7 @@ export default function PostWorkout({ onPosted }) {
             <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
             {secs.length > 1 && <button className="btn-rm" onClick={() => rmSec(si)}>×</button>}
           </div>
-          <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
+          <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes / workout description (optional)" />
 
           {sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
@@ -102,19 +100,25 @@ export default function PostWorkout({ onPosted }) {
                 {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-              <div className="set-builder-header">
-                <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
-              </div>
-              {mov.sets.map((st, sti) => (
-                <div key={st.id} className="set-builder-row">
-                  <span className="set-num-label">{st.set_number}</span>
-                  <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
-                  <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" />
-                  <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
-                  {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
-                </div>
-              ))}
-              <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+
+              {/* Only show set builder for Heaviest Set sections */}
+              {sec.score_type === 'Heaviest Set' && (
+                <>
+                  <div className="set-builder-header">
+                    <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+                  </div>
+                  {mov.sets.map((st, sti) => (
+                    <div key={st.id} className="set-builder-row">
+                      <span className="set-num-label">{st.set_number}</span>
+                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
+                      <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" />
+                      <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
+                      {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+                    </div>
+                  ))}
+                  <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+                </>
+              )}
             </div>
           ))}
           <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>
