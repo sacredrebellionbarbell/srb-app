@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import AthletePanel from './AthletePanel'
 
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 const MEMBERSHIP_TYPES = ['Class Access', 'Personal Training', 'Both', 'None']
@@ -10,6 +11,7 @@ export default function CRM({ user }) {
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [athletePanel, setAthletePanel] = useState(null)
   const [msgText, setMsgText] = useState('')
   const [toast, setToast] = useState(null)
 
@@ -95,7 +97,7 @@ export default function CRM({ user }) {
                 : <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', fontSize: '14px', color: 'var(--rose-light)', flexShrink: 0 }}>{initials(m.name)}</div>
               }
               <div>
-                <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px' }}>{m.name || 'Unnamed'}</div>
+                <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }} onClick={() => setAthletePanel(m.id)}>{m.name || 'Unnamed'}</div>
                 <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '2px' }}>{m.email}</div>
                 {m.phone && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{m.phone}</div>}
               </div>
@@ -128,6 +130,14 @@ export default function CRM({ user }) {
       ))}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {athletePanel && (
+        <AthletePanel
+          athleteId={athletePanel}
+          onClose={() => setAthletePanel(null)}
+          onUpdated={fetchMembers}
+        />
+      )}
     </div>
   )
 }
