@@ -55,24 +55,34 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
   const save = async () => {
     if (!title.trim()) { setErr('Title is required'); return }
     setLoading(true); setErr('')
+
+    // Update workout metadata
     await supabase.from('workouts').update({ title: title.trim(), track, date, notes: notes.trim() }).eq('id', workout.id)
-    await supabase.from('workout_sections').delete().eq('workout_id', workout.id)
+
+    // Delete ALL existing sections (cascade deletes movements and sets)
+    const { error: delErr } = await supabase.from('workout_sections').delete().eq('workout_id', workout.id)
+    if (delErr) { setErr('Delete failed: '+ delErr.message); setLoading(false); return }
+
+    // Small delay to ensure delete is fully committed before inserts
+    await new Promise(r => setTimeout(r, 300))
+
+    // Re-insert sections fresh
     for (let si = 0; si < secs.length; si++) {
       const sec = secs[si]
       const validMovs = sec.movements.filter(m => m.name.trim())
       if (!validMovs.length) continue
-      const { data: section } = await supabase
+      const { data: section, error: secErr } = await supabase
         .from('workout_sections')
         .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
         .select().single()
-      if (!section) continue
+      if (secErr || !section) continue
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
-        const { data: movement } = await supabase
+        const { data: movement, error: movErr } = await supabase
           .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
-        if (!movement) continue
+        if (movErr || !movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
-        if (sec.score_type === 'Heaviest Set' && validSets.length > 0) {
+        if (validSets.length > 0) {
           await supabase.from('sets').insert(
             validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx }))
           )
@@ -118,8 +128,7 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                     {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
                   </div>
                   <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-                  {sec.score_type === 'Heaviest Set' && (
-                    <>
+                  <>
                       <div className="set-builder-header">
                         <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
                       </div>
@@ -134,7 +143,6 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                       ))}
                       <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
                     </>
-                  )}
                 </div>
               ))}
               <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>
