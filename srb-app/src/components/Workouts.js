@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
+import AthletePanel from './AthletePanel'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
@@ -32,6 +33,7 @@ export default function Workouts({ user, profile }) {
   const [prepare, setPrepare] = useState(null)
   const [editing, setEditing] = useState(null)
   const [toast, setToast] = useState(null)
+  const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
@@ -126,6 +128,7 @@ export default function Workouts({ user, profile }) {
           onToggleReaction={toggleReaction}
           onPrepare={() => setPrepare({ workout: w, movements: getStrengthMovements(w) })}
           onEdit={() => setEditing(w)}
+          onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
 
@@ -147,11 +150,19 @@ export default function Workouts({ user, profile }) {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {athletePanel && (
+        <AthletePanel
+          athleteId={athletePanel}
+          onClose={() => setAthletePanel(null)}
+          onUpdated={fetchWorkouts}
+        />
+      )}
     </div>
   )
 }
 
-function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onToggleReaction, onPrepare, onEdit }) {
+function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onToggleReaction, onPrepare, onEdit, onAthleteClick }) {
   const [expandedAthlete, setExpandedAthlete] = useState(null)
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
 
@@ -208,13 +219,11 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                               {st.reps && <span className="set-reps">{st.reps} {parseInt(st.reps) === 1 ? 'rep' : 'reps'}</span>}
                               {st.load && <span className="set-load">@ {st.load}</span>}
                               {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
-                              {!isFuture && (
-                                <SetLogInput
-                                  value={myLog?.value || ''}
-                                  scoreType={scoreType}
-                                  onSave={val => onLogSetValue(st.id, m.id, workout.id, val)}
-                                />
-                              )}
+                              <SetLogInput
+                                value={myLog?.value || ''}
+                                scoreType={scoreType}
+                                onSave={val => onLogSetValue(st.id, m.id, workout.id, val)}
+                              />
                             </div>
                           )
                         })}
@@ -223,7 +232,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                   })}
 
                   {/* Per-section leaderboard */}
-                  {!isFuture && scoreType !== 'No Score' && sectionLeaderboard.length > 0 && (
+                  {scoreType !== 'No Score' && sectionLeaderboard.length > 0 && (
                     <SectionLeaderboard
                       entries={sectionLeaderboard}
                       scoreType={scoreType}
@@ -233,6 +242,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                       onToggleReaction={onToggleReaction}
                       expandedAthlete={expandedAthlete}
                       setExpandedAthlete={setExpandedAthlete}
+                      onAthleteClick={onAthleteClick}
                     />
                   )}
                 </div>
@@ -270,7 +280,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
               <h4>Log your sets above</h4>
               <button className="btn-moss" onClick={onPrepare}>Prepare</button>
             </div>
-            {isFuture && <p className="upcoming-note">Upcoming — use Prepare to review your numbers.</p>}
+
           </div>
         </div>
       )}
@@ -278,7 +288,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
   )
 }
 
-function SectionLeaderboard({ entries, scoreType, userId, reactions, legacyResults, onToggleReaction, expandedAthlete, setExpandedAthlete }) {
+function SectionLeaderboard({ entries, scoreType, userId, reactions, legacyResults, onToggleReaction, expandedAthlete, setExpandedAthlete, onAthleteClick }) {
   return (
     <div className="leaderboard" style={{ marginTop: '12px' }}>
       <div className="lb-title">{scoreType}</div>
@@ -294,7 +304,10 @@ function SectionLeaderboard({ entries, scoreType, userId, reactions, legacyResul
             <div className="lb-row" style={{ cursor: 'pointer' }} onClick={() => setExpandedAthlete(isExpanded ? null : entry.athleteId + entry.sectionId)}>
               <span className={`lb-rank ${rankClass}`}>{rankSym}</span>
               {entry.avatarUrl ? <img src={entry.avatarUrl} className="lb-avatar" alt="" /> : <div className="lb-avatar-placeholder">{(entry.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</div>}
-              <span className="lb-name">{entry.name}{isMe && <span className="lb-you">you</span>}</span>
+              <span className="lb-name"
+                onClick={e => { e.stopPropagation(); if (onAthleteClick) onAthleteClick(entry.athleteId) }}
+                style={onAthleteClick ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' } : {}}
+              >{entry.name}{isMe && <span className="lb-you">you</span>}</span>
               <span className="lb-score">{entry.bestScore}</span>
               <span style={{ fontSize: '11px', color: 'var(--charcoal-light)' }}>{isExpanded ? '▲' : '▼'}</span>
               {result && (
