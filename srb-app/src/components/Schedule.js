@@ -242,7 +242,7 @@ export default function Schedule({ user, profile }) {
         />
       ))}
 
-      {/* Recurring class instances */
+      {/* Recurring class instances */}
       {recurringClasses.map(cls => (
         <RecurringClassCard
           key={cls.id}
