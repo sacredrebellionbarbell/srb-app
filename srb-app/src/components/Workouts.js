@@ -94,12 +94,20 @@ export default function Workouts({ user, profile }) {
   const isToday = toISO(currentDate) === toISO(new Date())
   const isFuture = toISO(currentDate) > toISO(new Date())
 
+  // Auto-create a results row so reactions work for new set_logs system
+  const ensureResultRow = async (workoutId) => {
+    await supabase.from('results').upsert(
+      { workout_id: workoutId, athlete_id: user.id, score: 'logged' },
+      { onConflict: 'workout_id,athlete_id' }
+    )
+  }
+
   const logSetValue = async (setId, movementId, workoutId, value) => {
     const { error } = await supabase.from('set_logs').upsert(
       { set_id: setId, movement_id: movementId, workout_id: workoutId, athlete_id: user.id, value },
       { onConflict: 'set_id,athlete_id' }
     )
-    if (!error) { showToast('Logged!'); fetchWorkouts() }
+    if (!error) { await ensureResultRow(workoutId); showToast('Logged!'); fetchWorkouts() }
     else showToast('Error: ' + error.message)
   }
 
@@ -108,7 +116,7 @@ export default function Workouts({ user, profile }) {
       { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload },
       { onConflict: 'section_id,athlete_id' }
     )
-    if (!error) { showToast('Logged!'); fetchWorkouts() }
+    if (!error) { await ensureResultRow(workoutId); showToast('Logged!'); fetchWorkouts() }
     else showToast('Error: ' + error.message)
   }
 
@@ -245,8 +253,8 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                       <div key={mi} className="movement-block">
                         <div className="movement-block-name">{m.name}</div>
                         {m.notes && <div className="movement-notes-text">{m.notes}</div>}
-                        {/* Per-set logging for Heaviest Set only */}
-                        {scoreType === 'Heaviest Set' && sets.map((st, si) => {
+                        {/* Per-set logging for any section with programmed sets */}
+                        {sets.map((st, si) => {
                           const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
                           return (
                             <div key={si} className="set-log-row">
