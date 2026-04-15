@@ -44,7 +44,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchData = async () => {
       // Pull from new set_logs table
       const { data: slData } = await supabase
         .from('set_logs')
@@ -64,9 +64,10 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
         .select('score, note, workouts(title, date, workout_sections(type, movements(name)))')
         .eq('athlete_id', user.id)
         .order('created_at', { ascending: false })
-      setLegacyResults((rData || []).filter(r => xWeight(r.score) !== null))
+      // Only keep results that have a real weight score (not the auto-created 'logged' placeholder)
+      setLegacyResults((rData || []).filter(r => xWeight(r.score) !== null && r.score !== 'logged'))
     }
-    fetch()
+    fetchData()
   }, [user])
 
   const selectedMovement = movements?.[selectedIdx]
@@ -98,7 +99,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
 
     let best = 0
 
-    // Check set_logs first
+    // Check set_logs first (most accurate — has per-set reps)
     matchingSetLogs.forEach(sl => {
       const w = xWeight(sl.value)
       const r = xReps(sl.sets?.reps)
@@ -106,11 +107,13 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
     })
 
     // Fall back to legacy results
-    matchingLegacy.forEach(r => {
-      const w = xWeight(r.score)
-      const reps = xReps(r.note)
-      if (w) { const e = epley(w, reps); if (e > best) best = e }
-    })
+    if (best === 0) {
+      matchingLegacy.forEach(r => {
+        const w = xWeight(r.score)
+        const reps = xReps(r.note)
+        if (w) { const e = epley(w, reps); if (e > best) best = e }
+      })
+    }
 
     return best > 0 ? best : null
   }, [mw, mr, matchingSetLogs, matchingLegacy])
@@ -122,7 +125,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
   const pastByWorkout = useMemo(() => {
     const map = {}
     matchingSetLogs.forEach(sl => {
-      const key = sl.workouts?.date + sl.workouts?.title
+      const key = (sl.workouts?.date || '') + (sl.workouts?.title || '')
       if (!map[key]) map[key] = { title: sl.workouts?.title, date: sl.workouts?.date, sets: [], type: 'new' }
       map[key].sets.push({ setNumber: sl.sets?.set_number, reps: sl.sets?.reps, value: sl.value })
     })
@@ -170,7 +173,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
             : <div className="est-box">
                 <div className="est-label">No history for {selectedName}</div>
                 <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '6px' }}>
-                  {hasAnyHistory ? 'Enter a weight and reps above to calculate' : 'No results logged for this movement yet — enter above to estimate'}
+                  {hasAnyHistory ? 'Enter a weight and reps above to calculate' : 'No results logged yet — enter above to estimate'}
                 </div>
               </div>
           }
@@ -223,7 +226,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
                     <span style={{ fontSize: '13px', color: 'var(--bone)' }}>{w.title}</span>
                     <span style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{w.date}</span>
                   </div>
-                  {w.sets.sort((a, b) => a.setNumber - b.setNumber).map((s, si) => (
+                  {w.sets.sort((a, b) => (a.setNumber || 0) - (b.setNumber || 0)).map((s, si) => (
                     <div key={si} style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '2px 0 2px 8px' }}>
                       <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {s.setNumber}</span>
                       {s.reps && <span style={{ color: 'var(--bone)' }}>{s.reps} reps</span>}
@@ -235,12 +238,12 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
             </>
           )}
 
-          {/* Legacy results fallback */}
+          {/* Legacy results fallback — only show if no new set_logs exist */}
           {pastByWorkout.length === 0 && matchingLegacy.length > 0 && (
             <>
               <div className="past-title">Past Results — {selectedName}</div>
               <p style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginBottom: '10px', fontStyle: 'italic' }}>From previous logging system</p>
-              {matchingLegacy.slice(0, 5).map((r, i) => (
+              {matchingLegacy.slice(0, 6).map((r, i) => (
                 <div key={i} className="past-row">
                   <span style={{ flex: 1, color: 'var(--bone)', fontSize: '13px' }}>{r.workouts?.title}</span>
                   <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '13px' }}>{r.score}</span>
@@ -252,7 +255,7 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
           )}
 
           {!hasAnyHistory && pastByWorkout.length === 0 && (
-            <p style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>No results logged for this movement yet.</p>
+            <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '1rem' }}>No results logged for this movement yet.</p>
           )}
 
           <div className="formula">Epley: 1RM = weight × (1 + reps ÷ 30)</div>
