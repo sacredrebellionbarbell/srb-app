@@ -145,12 +145,27 @@ export default function PhotoWorkout({ user, onPosted }) {
     if (!title.trim()) { setErr('Title is required'); return }
     setPosting(true)
 
+    let resolvedPrivateTrackId = null
+    if (usePrivateTrack && assignedAthleteId) {
+      // Find existing track for this athlete or create one
+      const existing = privateTracks.find(pt => pt.athlete_id === assignedAthleteId)
+      if (existing) {
+        resolvedPrivateTrackId = existing.id
+      } else {
+        const athlete = members.find(m => m.id === assignedAthleteId)
+        const { data: newTrack } = await supabase.from('private_tracks')
+          .insert({ name: `${athlete?.name || 'Client'}'s Programming`, athlete_id: assignedAthleteId, created_by: user.id })
+          .select().single()
+        if (newTrack) resolvedPrivateTrackId = newTrack.id
+      }
+    }
+
     const workoutPayload = {
       title: title.trim(),
       date,
       notes: notes.trim(),
       track: usePrivateTrack ? 'Private' : track,
-      private_track_id: usePrivateTrack ? privateTrackId : null,
+      private_track_id: resolvedPrivateTrackId,
       assigned_athlete_id: usePrivateTrack ? assignedAthleteId : null
     }
 
@@ -262,36 +277,14 @@ export default function PhotoWorkout({ user, onPosted }) {
 
                 {usePrivateTrack && (
                   <div>
-                    {privateTracks.length > 0 && (
-                      <select value={privateTrackId || ''} onChange={e => {
-                        const t = privateTracks.find(pt => String(pt.id) === e.target.value)
-                        setPrivateTrackId(t?.id || null)
-                        setAssignedAthleteId(t?.athlete_id || null)
-                      }} style={{ marginBottom: '8px' }}>
-                        <option value="">Select a client track...</option>
-                        {privateTracks.map(pt => (
-                          <option key={pt.id} value={pt.id}>{pt.name} — {pt.profiles?.name}</option>
-                        ))}
-                      </select>
-                    )}
-                    <button className="btn-ghost" style={{ fontSize: '11px', marginTop: '6px' }} onClick={() => setShowNewTrack(!showNewTrack)}>
-                      {showNewTrack ? 'Cancel' : '+ Create New Client Track'}
-                    </button>
-                    {showNewTrack && (
-                      <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(245,240,232,0.03)', border: '1px solid var(--border)', borderRadius: '2px' }}>
-                        <div className="field">
-                          <label>Track Name</label>
-                          <input type="text" value={newTrackName} onChange={e => setNewTrackName(e.target.value)} placeholder="e.g. Sarah's Programming" />
-                        </div>
-                        <div className="field">
-                          <label>Assign to Athlete</label>
-                          <select value={newTrackAthlete} onChange={e => setNewTrackAthlete(e.target.value)}>
-                            <option value="">Select athlete...</option>
-                            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                          </select>
-                        </div>
-                        <button className="btn-sm" onClick={createPrivateTrack} disabled={!newTrackName.trim() || !newTrackAthlete}>Create Track</button>
-                      </div>
+                    <select value={assignedAthleteId || ''} onChange={e => setAssignedAthleteId(e.target.value || null)}>
+                      <option value="">Select athlete...</option>
+                      {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                    {assignedAthleteId && (
+                      <p style={{ fontSize: '12px', color: 'var(--moss-light)', marginTop: '6px' }}>
+                        ✓ Will post to this athlete's private track only
+                      </p>
                     )}
                   </div>
                 )}
@@ -340,7 +333,7 @@ export default function PhotoWorkout({ user, onPosted }) {
               <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
 
               <div style={{ marginTop: '1.5rem', display: 'flex', gap: '10px' }}>
-                <button className="btn-primary" onClick={post} disabled={posting || (usePrivateTrack && !privateTrackId)}>
+                <button className="btn-primary" onClick={post} disabled={posting || (usePrivateTrack && !assignedAthleteId)}>
                   {posting ? 'Posting...' : 'Post Workout'}
                 </button>
                 <button className="btn-ghost" onClick={() => { setStep('upload'); setImageData(null); setImagePreview(null); setSecs([newSec()]); setTitle(''); setNotes('') }} style={{ flex: 'none', width: 'auto', padding: '10px 20px' }}>
