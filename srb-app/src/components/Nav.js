@@ -1,6 +1,8 @@
 import React from 'react'
-import logo from '../assets/logo.jpg'
-  export default function Nav({ user, profile, tab, setTab, onLogout }) {
+
+const logo = process.env.PUBLIC_URL + '/logo.jpg'
+
+export default function Nav({ user, profile, tab, setTab, onLogout }) {
   const initials = (profile?.name || user?.email || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
   const isCoach = profile?.role === 'coach'
 
@@ -18,6 +20,7 @@ import logo from '../assets/logo.jpg'
         <button className={`nav-tab ${tab === 'workouts' ? 'active' : ''}`} onClick={() => setTab('workouts')}>Workouts</button>
         <button className={`nav-tab ${tab === 'schedule' ? 'active' : ''}`} onClick={() => setTab('schedule')}>Schedule</button>
         {isCoach && <button className={`nav-tab ${tab === 'post' ? 'active' : ''}`} onClick={() => setTab('post')}>Post</button>}
+        {isCoach && <button className={`nav-tab ${tab === 'photo' ? 'active' : ''}`} onClick={() => setTab('photo')}>📷</button>}
         {isCoach && <button className={`nav-tab ${tab === 'crm' ? 'active' : ''}`} onClick={() => setTab('crm')}>Members</button>}
         <button className={`nav-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => setTab('profile')}>Profile</button>
       </div>
