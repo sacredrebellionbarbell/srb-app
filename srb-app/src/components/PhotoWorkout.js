@@ -63,61 +63,15 @@ export default function PhotoWorkout({ user, onPosted }) {
     setStep('preview')
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 }
-              },
-              {
-                type: 'text',
-                text: `You are reading a handwritten or printed gym workout. Extract the workout and return ONLY valid JSON, no other text, no markdown, no backticks.
-
-Return this exact structure:
-{
-  "title": "workout title or date if visible, otherwise 'Workout'",
-  "notes": "any general notes or intent visible",
-  "sections": [
-    {
-      "type": "Strength",
-      "score_type": "No Score",
-      "notes": "section notes if any",
-      "movements": [
-        {
-          "name": "movement name",
-          "notes": "movement notes if any",
-          "sets": [
-            { "set_number": 1, "reps": "5", "load": "80%", "rpe": "" }
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-Section type must be one of: Warm-Up, Strength, Accessory, Conditioning, Core, Cooldown, Skills, Custom
-Score type must be one of: No Score, Heaviest Set, For Time, AMRAP, Max Reps / Calories, Max Distance
-
-Infer score type from context: if it's a timed workout use "For Time", if it has weights use "Heaviest Set", if it's rounds use "AMRAP", otherwise "No Score".
-
-If sets are written like "3x5 @ 80%" create 3 set objects each with reps "5" and load "80%".
-If no sets are specified, return an empty sets array.
-Return ONLY the JSON object.`
-              }
-            ]
-          }]
-        })
+        body: JSON.stringify({ imageData: base64, mediaType: file.type || 'image/jpeg' })
       })
 
       const data = await response.json()
-      const text = data.content?.[0]?.text || ''
+      if (!response.ok) throw new Error(data.error || 'Transcription failed')
+      const text = data.text || ''
 
       // Parse the JSON response
       let parsed
