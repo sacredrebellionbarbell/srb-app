@@ -64,13 +64,20 @@ export default function App() {
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
         {tab === 'shop' && (
-          <div style={{ margin: '-2rem -1.5rem' }}>
-            <iframe
-              src="https://sacredrebellionbarbell.printify.me"
-              title="SRB Shop"
-              style={{ width: '100%', height: 'calc(100vh - 62px)', border: 'none', display: 'block' }}
-              allow="payment"
-            />
+          <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '28px', color: 'var(--gold-light)', letterSpacing: '3px', marginBottom: '1rem' }}>SRB Gear</div>
+            <div style={{ width: '60px', height: '1px', background: 'var(--gold)', margin: '0 auto 1.5rem', opacity: 0.5 }} />
+            <p style={{ fontSize: '15px', color: 'var(--charcoal-light)', marginBottom: '2rem', lineHeight: 1.7, maxWidth: '400px', margin: '0 auto 2rem' }}>
+              Rep the rebellion. Sacred Rebellion Barbell apparel and gear — built for people who take the barbell seriously.
+            </p>
+            <a
+              href="https://sacredrebellionbarbell.printify.me"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'inline-block', background: 'var(--gold-dark)', border: '1px solid var(--gold)', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', textTransform: 'uppercase', padding: '14px 32px', textDecoration: 'none', borderRadius: '2px', transition: 'all 0.2s' }}
+            >
+              Shop Now
+            </a>
           </div>
         )}
         {tab === 'profile' && <Profile user={session.user} profile={profile} onProfileUpdate={() => fetchProfile(session.user.id)} />}
