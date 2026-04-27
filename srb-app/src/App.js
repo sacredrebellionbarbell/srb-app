@@ -63,6 +63,16 @@ export default function App() {
         {tab === 'post' && isCoach && <PostWorkout onPosted={() => setTab('workouts')} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
+        {tab === 'shop' && (
+          <div style={{ margin: '-2rem -1.5rem' }}>
+            <iframe
+              src="https://sacredrebellionbarbell.printify.me"
+              title="SRB Shop"
+              style={{ width: '100%', height: 'calc(100vh - 62px)', border: 'none', display: 'block' }}
+              allow="payment"
+            />
+          </div>
+        )}
         {tab === 'profile' && <Profile user={session.user} profile={profile} onProfileUpdate={() => fetchProfile(session.user.id)} />}
       </main>
     </div>
