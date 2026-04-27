@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import AthletePanel from './AthletePanel'
 
@@ -17,28 +17,53 @@ export default function CRM({ user }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
-  useEffect(() => { fetchMembers(); fetchNotifications() }, [])
+  const fetchMembers = useCallback(async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('name', { ascending: true })
+    setMembers(data || [])
+    setLoading(false)
+  }, [])
 
-  const fetchMembers = async () => {
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
-    setMembers(data || []); setLoading(false)
-  }
-
-  const fetchNotifications = async () => {
-    const { data } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(20)
+  const fetchNotifications = useCallback(async () => {
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20)
     setNotifications(data || [])
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchMembers()
+    fetchNotifications()
+  }, [fetchMembers, fetchNotifications])
 
   const updateMembership = async (id, type) => {
-    await supabase.from('profiles').update({ membership_type: type }).eq('id', id)
-    setMembers(members.map(m => m.id === id ? { ...m, membership_type: type } : m))
-    showToast('Membership updated')
+    const { error } = await supabase
+      .from('profiles')
+      .update({ membership_type: type })
+      .eq('id', id)
+    if (!error) {
+      await fetchMembers() // re-fetch from DB to confirm it stuck
+      showToast('Membership updated')
+    } else {
+      showToast('Error: ' + error.message)
+    }
   }
 
-  const promoteToCoach = async (id) => {
-    await supabase.from('profiles').update({ role: 'coach' }).eq('id', id)
-    setMembers(members.map(m => m.id === id ? { ...m, role: 'coach' } : m))
-    showToast('Role updated')
+  const updateRole = async (id, role) => {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role })
+      .eq('id', id)
+    if (!error) {
+      await fetchMembers()
+      showToast('Role updated')
+    } else {
+      showToast('Error: ' + error.message)
+    }
   }
 
   const broadcastEmail = () => {
@@ -97,15 +122,22 @@ export default function CRM({ user }) {
                 : <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', fontSize: '14px', color: 'var(--rose-light)', flexShrink: 0 }}>{initials(m.name)}</div>
               }
               <div>
-                <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }} onClick={() => setAthletePanel(m.id)}>{m.name || 'Unnamed'}</div>
+                <div
+                  style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }}
+                  onClick={() => setAthletePanel(m.id)}
+                >{m.name || 'Unnamed'}</div>
                 <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '2px' }}>{m.email}</div>
                 {m.phone && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{m.phone}</div>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {m.membership_type && <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{m.membership_type}</span>}
+              {m.membership_type && (
+                <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{m.membership_type}</span>
+              )}
               <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: m.role === 'coach' ? 'var(--gold)' : 'var(--charcoal-light)' }}>{m.role}</span>
-              <button className="btn-ghost" onClick={() => setSelected(selected === m.id ? null : m.id)}>{selected === m.id ? 'Close' : 'Manage'}</button>
+              <button className="btn-ghost" onClick={() => setSelected(selected === m.id ? null : m.id)}>
+                {selected === m.id ? 'Close' : 'Manage'}
+              </button>
             </div>
           </div>
 
@@ -115,14 +147,27 @@ export default function CRM({ user }) {
                 <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Membership Type</div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {MEMBERSHIP_TYPES.map(t => (
-                    <button key={t} className={m.membership_type === t ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateMembership(m.id, t)}>{t}</button>
+                    <button
+                      key={t}
+                      className={m.membership_type === t ? 'btn-sm' : 'btn-ghost'}
+                      style={{ fontSize: '11px' }}
+                      onClick={() => updateMembership(m.id, t)}
+                    >{t}</button>
                   ))}
                 </div>
               </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Role</div>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button className={m.role === 'athlete' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'athlete')}>Athlete</button>
+                  <button className={m.role === 'coach' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'coach')}>Coach</button>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                 <button className="btn-moss" onClick={() => window.open(`mailto:${m.email}?body=${encodeURIComponent(msgText || '')}`)}>Email</button>
                 {m.phone && <button className="btn-moss" onClick={() => window.open(`sms:${m.phone}&body=${encodeURIComponent(msgText || '')}`)}>Text</button>}
-                {m.role !== 'coach' && <button className="btn-ghost" onClick={() => promoteToCoach(m.id)}>Make Coach</button>}
               </div>
             </div>
           )}
