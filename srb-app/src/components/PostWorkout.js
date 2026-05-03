@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
 const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
@@ -9,7 +9,7 @@ function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', s
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 
-export default function PostWorkout({ onPosted }) {
+export default function PostWorkout({ user, onPosted }) {
   const today = new Date().toISOString().split('T')[0]
   const [title, setTitle] = useState('')
   const [track, setTrack] = useState(TRACKS[0])
@@ -18,6 +18,17 @@ export default function PostWorkout({ onPosted }) {
   const [secs, setSecs] = useState([newSec()])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
+
+  // Private track state
+  const [usePrivateTrack, setUsePrivateTrack] = useState(false)
+  const [assignedAthleteId, setAssignedAthleteId] = useState(null)
+  const [members, setMembers] = useState([])
+  const [privateTracks, setPrivateTracks] = useState([])
+
+  useEffect(() => {
+    supabase.from('profiles').select('id, name').order('name').then(({ data }) => setMembers(data || []))
+    supabase.from('private_tracks').select('*').then(({ data }) => setPrivateTracks(data || []))
+  }, [])
 
   const addSec = () => setSecs([...secs, newSec()])
   const rmSec = i => setSecs(secs.filter((_, j) => j !== i))
@@ -31,10 +42,39 @@ export default function PostWorkout({ onPosted }) {
 
   const submit = async () => {
     if (!title.trim()) { setErr('Title is required'); return }
+    if (usePrivateTrack && !assignedAthleteId) { setErr('Please select a client'); return }
     setLoading(true); setErr('')
 
+    // Resolve private track
+    let resolvedPrivateTrackId = null
+    if (usePrivateTrack && assignedAthleteId) {
+      const existing = privateTracks.find(pt => pt.athlete_id === assignedAthleteId)
+      if (existing) {
+        resolvedPrivateTrackId = existing.id
+      } else {
+        const athlete = members.find(m => m.id === assignedAthleteId)
+        const { data: newTrack } = await supabase.from('private_tracks')
+          .insert({ name: `${athlete?.name || 'Client'}'s Programming`, athlete_id: assignedAthleteId, created_by: user.id })
+          .select().single()
+        if (newTrack) {
+          resolvedPrivateTrackId = newTrack.id
+          setPrivateTracks(prev => [...prev, newTrack])
+        }
+      }
+    }
+
     const { data: workout, error: wErr } = await supabase
-      .from('workouts').insert({ title: title.trim(), track, date, notes: notes.trim() }).select().single()
+      .from('workouts')
+      .insert({
+        title: title.trim(),
+        track: usePrivateTrack ? 'Private' : track,
+        date,
+        notes: notes.trim(),
+        private_track_id: resolvedPrivateTrackId,
+        assigned_athlete_id: usePrivateTrack ? assignedAthleteId : null
+      })
+      .select().single()
+
     if (wErr) { setErr(wErr.message); setLoading(false); return }
 
     for (let si = 0; si < secs.length; si++) {
@@ -60,7 +100,7 @@ export default function PostWorkout({ onPosted }) {
       }
     }
 
-    setTitle(''); setNotes(''); setSecs([newSec()])
+    setTitle(''); setNotes(''); setSecs([newSec()]); setAssignedAthleteId(null); setUsePrivateTrack(false)
     setLoading(false)
     onPosted()
   }
@@ -74,10 +114,34 @@ export default function PostWorkout({ onPosted }) {
         <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
         <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
       </div>
+
+      {/* Public / Private toggle */}
       <div className="field">
-        <label>Track</label>
-        <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+        <label>Assign To</label>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+          <button className={!usePrivateTrack ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => { setUsePrivateTrack(false); setAssignedAthleteId(null) }}>Public Track</button>
+          <button className={usePrivateTrack ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => setUsePrivateTrack(true)}>Private Client</button>
+        </div>
+
+        {!usePrivateTrack && (
+          <select value={track} onChange={e => setTrack(e.target.value)}>
+            {TRACKS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+
+        {usePrivateTrack && (
+          <div>
+            <select value={assignedAthleteId || ''} onChange={e => setAssignedAthleteId(e.target.value || null)}>
+              <option value="">Select client...</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {assignedAthleteId && (
+              <p style={{ fontSize: '12px', color: 'var(--moss-light)', marginTop: '6px' }}>✓ Only visible to this client</p>
+            )}
+          </div>
+        )}
       </div>
+
       <div className="field">
         <label>General Notes</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Intent, scaling, cues..." />
@@ -100,25 +164,19 @@ export default function PostWorkout({ onPosted }) {
                 {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-
-              {/* Only show set builder for Heaviest Set sections */}
-              {sec.score_type === 'Heaviest Set' && (
-                <>
-                  <div className="set-builder-header">
-                    <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
-                  </div>
-                  {mov.sets.map((st, sti) => (
-                    <div key={st.id} className="set-builder-row">
-                      <span className="set-num-label">{st.set_number}</span>
-                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
-                      <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" />
-                      <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
-                      {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
-                    </div>
-                  ))}
-                  <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
-                </>
-              )}
+              <div className="set-builder-header">
+                <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+              </div>
+              {mov.sets.map((st, sti) => (
+                <div key={st.id} className="set-builder-row">
+                  <span className="set-num-label">{st.set_number}</span>
+                  <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
+                  <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" />
+                  <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
+                  {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+                </div>
+              ))}
+              <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
             </div>
           ))}
           <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>
@@ -126,7 +184,9 @@ export default function PostWorkout({ onPosted }) {
       ))}
       <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
       <div style={{ marginTop: '1.5rem' }}>
-        <button className="btn-primary" onClick={submit} disabled={loading}>{loading ? 'Posting...' : 'Post Workout'}</button>
+        <button className="btn-primary" onClick={submit} disabled={loading || (usePrivateTrack && !assignedAthleteId)}>
+          {loading ? 'Posting...' : 'Post Workout'}
+        </button>
       </div>
     </div>
   )
