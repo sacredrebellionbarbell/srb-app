@@ -71,12 +71,13 @@ export default function Programs({ user, profile }) {
       description: newDesc.trim(),
       athlete_id: newAthlete || null,
       created_by: user.id
-    }).select('*, profiles(name)').single()
-    if (!error && data) {
-      setPrograms(prev => [data, ...prev])
+    }).select().single()
+    if (error) { showToast('Error: ' + error.message); return }
+    if (data) {
       setNewName(''); setNewDesc(''); setNewAthlete('')
       setShowNewProgram(false)
       showToast('Program created')
+      fetchPrograms() // re-fetch to get profiles join
     }
   }
 
