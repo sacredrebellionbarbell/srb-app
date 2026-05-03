@@ -8,6 +8,7 @@ import PhotoWorkout from './components/PhotoWorkout'
 import Profile from './components/Profile'
 import Schedule from './components/Schedule'
 import CRM from './components/CRM'
+import Programs from './components/Programs'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -60,7 +61,8 @@ export default function App() {
       <main className="main">
         {tab === 'workouts' && <Workouts user={session.user} profile={profile} />}
         {tab === 'schedule' && <Schedule user={session.user} profile={profile} />}
-        {tab === 'post' && isCoach && <PostWorkout onPosted={() => setTab('workouts')} />}
+        {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => setTab('workouts')} />}
+        {tab === 'programs' && <Programs user={session.user} profile={profile} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
         {tab === 'shop' && (
@@ -74,7 +76,7 @@ export default function App() {
               href="https://sacredrebellionbarbell.printify.me"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ display: 'inline-block', background: 'var(--gold-dark)', border: '1px solid var(--gold)', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', textTransform: 'uppercase', padding: '14px 32px', textDecoration: 'none', borderRadius: '2px', transition: 'all 0.2s' }}
+              style={{ display: 'inline-block', background: 'var(--gold-dark)', border: '1px solid var(--gold)', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', textTransform: 'uppercase', padding: '14px 32px', textDecoration: 'none', borderRadius: '2px' }}
             >
               Shop Now
             </a>
