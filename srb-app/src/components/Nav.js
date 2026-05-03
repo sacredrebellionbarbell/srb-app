@@ -19,6 +19,7 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
       <div className="nav-tabs">
         <button className={`nav-tab ${tab === 'workouts' ? 'active' : ''}`} onClick={() => setTab('workouts')}>Workouts</button>
         <button className={`nav-tab ${tab === 'schedule' ? 'active' : ''}`} onClick={() => setTab('schedule')}>Schedule</button>
+        <button className={`nav-tab ${tab === 'programs' ? 'active' : ''}`} onClick={() => setTab('programs')}>Programs</button>
         {isCoach && <button className={`nav-tab ${tab === 'post' ? 'active' : ''}`} onClick={() => setTab('post')}>Post</button>}
         {isCoach && <button className={`nav-tab ${tab === 'photo' ? 'active' : ''}`} onClick={() => setTab('photo')}>📷</button>}
         {isCoach && <button className={`nav-tab ${tab === 'crm' ? 'active' : ''}`} onClick={() => setTab('crm')}>Members</button>}
