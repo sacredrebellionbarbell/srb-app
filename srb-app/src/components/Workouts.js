@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
+import VideoModal from './VideoModal'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
@@ -206,6 +207,7 @@ export default function Workouts({ user, profile }) {
 
 function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onAthleteClick }) {
   const [expandedAthlete, setExpandedAthlete] = useState(null)
+  const [demoVideo, setDemoVideo] = useState(null)
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
   const legacyResults = workout.results || []
 
@@ -251,7 +253,15 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                     const sets = (m.sets || []).sort((a, b) => a.order_index - b.order_index)
                     return (
                       <div key={mi} className="movement-block">
-                        <div className="movement-block-name">{m.name}</div>
+                        <div className="movement-block-name" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span>{m.name}</span>
+                        {m.demo_url && (
+                          <button onClick={() => setDemoVideo({ url: m.demo_url, title: m.name })}
+                            style={{ background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', borderRadius: '2px', color: 'var(--rose-light)', fontSize: '11px', padding: '2px 8px', cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap' }}>
+                            ▶ Demo
+                          </button>
+                        )}
+                      </div>
                         {m.notes && <div className="movement-notes-text">{m.notes}</div>}
                         {/* Per-set logging for any section with programmed sets */}
                         {sets.map((st, si) => {
@@ -346,6 +356,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
           </div>
         </div>
       )}
+    {demoVideo && <VideoModal url={demoVideo.url} title={demoVideo.title} onClose={() => setDemoVideo(null)} />}
     </div>
   )
 }
