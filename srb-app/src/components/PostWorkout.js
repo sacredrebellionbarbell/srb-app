@@ -6,7 +6,7 @@ const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Coo
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
-function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 
 export default function PostWorkout({ user, onPosted }) {
@@ -89,7 +89,7 @@ export default function PostWorkout({ user, onPosted }) {
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement } = await supabase
-          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
         if (!movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) {
@@ -164,6 +164,7 @@ export default function PostWorkout({ user, onPosted }) {
                 {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+              <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
               <div className="set-builder-header">
                 <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
               </div>
