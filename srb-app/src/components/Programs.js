@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
+import VideoModal from './VideoModal'
 
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
-function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [newSet(1)] } }
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 
 export default function Programs({ user, profile }) {
@@ -35,6 +36,7 @@ export default function Programs({ user, profile }) {
   const [editingPw, setEditingPw] = useState(null)
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [logNote, setLogNote] = useState('')
+  const [demoVideo, setDemoVideo] = useState(null)
   const fileRef = useRef()
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
@@ -93,7 +95,7 @@ export default function Programs({ user, profile }) {
       if (!section) continue
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
-        const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+        const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
         if (!movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
@@ -256,7 +258,7 @@ export default function Programs({ user, profile }) {
                   if (!section) continue
                   for (let mi = 0; mi < validMovs.length; mi++) {
                     const mov = validMovs[mi]
-                    const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+                    const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
                     if (!movement) continue
                     const validSets = mov.sets.filter(st => st.reps || st.load)
                     if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
@@ -303,7 +305,15 @@ export default function Programs({ user, profile }) {
                       <div style={{ fontSize: '10px', letterSpacing: '2px', color: 'var(--gold-dark)', textTransform: 'uppercase', marginBottom: '2px' }}>{sec.type}</div>
                       {(sec.movements || []).map((m, mi) => (
                         <div key={mi} style={{ fontSize: '13px', color: 'var(--bone)', paddingLeft: '8px' }}>
-                          {m.name}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {m.name}
+                            {m.demo_url && (
+                              <button onClick={e => { e.stopPropagation(); setDemoVideo({ url: m.demo_url, title: m.name }) }}
+                                style={{ background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', borderRadius: '2px', color: 'var(--rose-light)', fontSize: '11px', padding: '2px 8px', cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap' }}>
+                                ▶ Demo
+                              </button>
+                            )}
+                          </span>
                           {(m.sets || []).length > 0 && (
                             <span style={{ color: 'var(--charcoal-light)', marginLeft: '8px', fontSize: '12px' }}>
                               {m.sets.length}×{m.sets[0]?.reps && ` ${m.sets[0].reps}`}{m.sets[0]?.load && ` @ ${m.sets[0].load}`}
@@ -356,6 +366,7 @@ export default function Programs({ user, profile }) {
           </div>
         )}
 
+        {demoVideo && <VideoModal url={demoVideo.url} title={demoVideo.title} onClose={() => setDemoVideo(null)} />}
         {toast && <div className="toast">{toast}</div>}
       </div>
     )
@@ -444,6 +455,7 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
                 {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+      <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
               <div className="set-builder-header"><span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span></div>
               {mov.sets.map((st, sti) => (
                 <div key={st.id} className="set-builder-row">
