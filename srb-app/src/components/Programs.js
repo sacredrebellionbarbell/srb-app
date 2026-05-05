@@ -40,9 +40,8 @@ export default function Programs({ user, profile }) {
 
   const fetchPrograms = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase.from('programs').select('*, profiles(name, avatar_url)').order('created_at', { ascending: false })
-    console.log('Programs fetch data:', JSON.stringify(data))
-    console.log('Programs fetch error:', JSON.stringify(error))
+    const { data, error } = await supabase.from('programs').select('*, profiles!programs_athlete_id_fkey(name, avatar_url)').order('created_at', { ascending: false })
+
     setPrograms(data || [])
     setLoading(false)
   }, [])
