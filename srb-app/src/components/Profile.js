@@ -3,12 +3,12 @@ import { supabase } from '../supabaseClient'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
-const TC = { 'Strength & Conditioning': 'track-strength', 'Babes Who Fight Bears': 'track-bears', 'Open Track': 'track-open' }
+const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
-function xReps(n) { const m = (n || '').match(/(\d+)\s*rep/i); return m ? parseInt(m[1]) : 1 }
+function xReps(s) { const m = (s || '').match(/^(\d+)/); return m ? parseInt(m[1]) : 1 }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 
 export default function Profile({ user, profile, onProfileUpdate }) {
@@ -25,15 +25,35 @@ export default function Profile({ user, profile, onProfileUpdate }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
-  useEffect(() => { fetchResults(); fetchAttendance() }, [user])
+  useEffect(() => {
+    fetchResults()
+    fetchAttendance()
+  }, [user])
 
   const fetchResults = async () => {
-    const { data } = await supabase
-      .from('results')
-      .select('*, workouts(title, date, track, workout_sections(movements(*)))')
+    // Pull from set_logs — filter to Strength sections only for 1RM estimation
+    const { data: setLogData } = await supabase
+      .from('set_logs')
+      .select(`
+        value,
+        sets(reps, load, set_number),
+        movements(name, section_id, workout_sections(type)),
+        workouts(title, date, track)
+      `)
       .eq('athlete_id', user.id)
       .order('created_at', { ascending: false })
-    if (data) { setResults(data); buildPRs(data) }
+
+    // Pull from legacy results table as fallback
+    const { data: legacyData } = await supabase
+      .from('results')
+      .select('*, workouts(title, date, track, workout_sections(type, movements(*)))')
+      .eq('athlete_id', user.id)
+      .neq('score', 'logged')
+      .order('created_at', { ascending: false })
+
+    const validLegacy = (legacyData || []).filter(r => xWeight(r.score) !== null)
+    setResults(validLegacy)
+    buildPRs(setLogData || [], validLegacy)
   }
 
   const fetchAttendance = async () => {
@@ -45,18 +65,44 @@ export default function Profile({ user, profile, onProfileUpdate }) {
     setAttendance(data || [])
   }
 
-  const buildPRs = (data) => {
+  const buildPRs = (setLogs, legacyResults) => {
     const map = {}
-    data.forEach(r => {
+
+    // Process new set_logs — Strength sections only
+    setLogs.forEach(sl => {
+      const w = xWeight(sl.value)
+      if (!w) return
+      const movName = sl.movements?.name
+      if (!movName) return
+      // Only use Strength sections for 1RM estimation
+      const sectionType = sl.movements?.workout_sections?.type
+      if (sectionType && sectionType !== 'Strength') return
+      const r = xReps(sl.sets?.reps)
+      if (r > 10) return // ignore high rep sets — unreliable for 1RM estimation
+      const est = epley(w, r)
+      if (!map[movName] || est > map[movName].est) {
+        map[movName] = { raw: sl.value, est, date: sl.workouts?.date, reps: sl.sets?.reps }
+      }
+    })
+
+    // Fill in from legacy results — Strength sections only
+    legacyResults.forEach(r => {
       const wt = xWeight(r.score)
       if (!wt) return
-      const movements = r.workouts?.workout_sections?.flatMap(s => s.movements || []) || []
+      const movements = r.workouts?.workout_sections
+        ?.filter(s => s.type === 'Strength')
+        ?.flatMap(s => s.movements || []) || []
       movements.forEach(m => {
         if (!m.name) return
-        const est = epley(wt, xReps(r.note))
-        if (!map[m.name] || est > map[m.name].est) map[m.name] = { raw: r.score, est, date: r.workouts?.date }
+        const reps = xReps(r.note)
+        if (reps > 10) return
+        const est = epley(wt, reps)
+        if (!map[m.name] || est > map[m.name].est) {
+          map[m.name] = { raw: r.score, est, date: r.workouts?.date }
+        }
       })
     })
+
     setPrs(Object.entries(map).sort((a, b) => b[1].est - a[1].est))
   }
 
@@ -170,12 +216,13 @@ export default function Profile({ user, profile, onProfileUpdate }) {
         <div className="pc">
           <div className="pc-title">Estimated 1RMs</div>
           {prs.length === 0
-            ? <p className="no-data">Log weight-based results to see estimates.</p>
+            ? <p className="no-data">Log weighted sets to see estimates.</p>
             : prs.map(([name, d]) => (
               <div key={name} className="pr-row">
                 <span className="pr-mv">{name}</span>
                 <div style={{ textAlign: 'right' }}>
                   <div className="pr-val">~{d.est} lbs</div>
+                  {d.reps && <div style={{ fontSize: '11px', color: 'var(--moss-light)' }}>{d.reps} reps @ {d.raw}</div>}
                   <div className="pr-date">{d.date}</div>
                 </div>
               </div>
