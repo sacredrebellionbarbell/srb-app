@@ -10,6 +10,8 @@ function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, rep
 
 export default function Programs({ user, profile }) {
   const isCoach = profile?.role === 'coach'
+  // Always treat as coach if role hasn't loaded yet and user created the program
+  const canSeeAll = isCoach
   const [programs, setPrograms] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedProgram, setSelectedProgram] = useState(null)
@@ -348,7 +350,7 @@ export default function Programs({ user, profile }) {
         </div>
       )}
 
-      {programs.map(p => (
+      {programs.filter(p => canSeeAll || p.athlete_id === user.id || !p.athlete_id || p.created_by === user.id).map(p => (
         <div key={p.id} className="class-card" style={{ cursor: 'pointer' }} onClick={() => setSelectedProgram(p)}>
           <div className="class-card-header">
             <div>
