@@ -348,7 +348,7 @@ export default function Programs({ user, profile }) {
         </div>
       )}
 
-      {programs.filter(p => isCoach || p.athlete_id === user.id || !p.athlete_id).map(p => (
+      {programs.map(p => (
         <div key={p.id} className="class-card" style={{ cursor: 'pointer' }} onClick={() => setSelectedProgram(p)}>
           <div className="class-card-header">
             <div>
