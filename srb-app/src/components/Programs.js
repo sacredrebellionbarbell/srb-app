@@ -32,6 +32,7 @@ export default function Programs({ user, profile }) {
   const [transcribing, setTranscribing] = useState(false)
   const [transcribeErr, setTranscribeErr] = useState('')
   const [loggingPw, setLoggingPw] = useState(null)
+  const [editingPw, setEditingPw] = useState(null)
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [logNote, setLogNote] = useState('')
   const fileRef = useRef()
@@ -238,6 +239,36 @@ export default function Programs({ user, profile }) {
           </div>
         )}
 
+        {isCoach && addMode === 'edit' && editingPw && (
+          <div className="panel" style={{ marginBottom: '1.5rem' }}>
+            <div className="panel-title">Edit Workout</div>
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet}
+              onSave={async () => {
+                if (!wTitle.trim()) { return }
+                const wid = editingPw.workouts?.id
+                await supabase.from('workouts').update({ title: wTitle.trim(), notes: wNotes.trim() }).eq('id', wid)
+                await supabase.from('workout_sections').delete().eq('workout_id', wid)
+                for (let si = 0; si < wSecs.length; si++) {
+                  const sec = wSecs[si]
+                  const validMovs = sec.movements.filter(m => m.name.trim())
+                  if (!validMovs.length) continue
+                  const { data: section } = await supabase.from('workout_sections').insert({ workout_id: wid, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si }).select().single()
+                  if (!section) continue
+                  for (let mi = 0; mi < validMovs.length; mi++) {
+                    const mov = validMovs[mi]
+                    const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+                    if (!movement) continue
+                    const validSets = mov.sets.filter(st => st.reps || st.load)
+                    if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
+                  }
+                }
+                setAddMode(null); setEditingPw(null); setWTitle(''); setWNotes(''); setWSecs([newSec()])
+                fetchProgramWorkouts(selectedProgram.id)
+              }}
+              onCancel={() => { setAddMode(null); setEditingPw(null) }} />
+          </div>
+        )}
+
         {isCoach && addMode === 'scratch' && (
           <div className="panel" style={{ marginBottom: '1.5rem' }}>
             <div className="panel-title">Build Workout</div>
@@ -288,6 +319,20 @@ export default function Programs({ user, profile }) {
                     ? <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => uncomplete(pw.id)}>Undo</button>
                     : <button className="btn-sm" style={{ fontSize: '11px' }} onClick={() => { setLoggingPw(pw); setLogDate(new Date().toISOString().split('T')[0]); setLogNote('') }}>Log & Done</button>
                   }
+                  {isCoach && <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => {
+                    const w = pw.workouts
+                    setWTitle(w?.title || '')
+                    setWNotes(w?.notes || '')
+                    setWSecs((w?.workout_sections || []).sort((a,b) => a.order_index - b.order_index).map(sec => ({
+                      id: Date.now() + Math.random(), type: sec.type, score_type: sec.score_type || 'No Score', notes: sec.notes || '',
+                      movements: (sec.movements || []).sort((a,b) => a.order_index - b.order_index).map(mov => ({
+                        id: Date.now() + Math.random(), name: mov.name, notes: mov.notes || '',
+                        sets: (mov.sets || []).sort((a,b) => a.order_index - b.order_index).map(st => ({ id: Date.now() + Math.random(), set_number: st.set_number, reps: st.reps || '', load: st.load || '', rpe: st.rpe || '' }))
+                      }))
+                    })) || [newSec()])
+                    setEditingPw(pw)
+                    setAddMode('edit')
+                  }}>Edit</button>}
                   {isCoach && <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={() => removeFromProgram(pw.id)}>Remove</button>}
                 </div>
               </div>
