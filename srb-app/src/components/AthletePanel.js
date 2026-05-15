@@ -11,6 +11,7 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
   const [results, setResults] = useState([])
   const [attendance, setAttendance] = useState([])
   const [loading, setLoading] = useState(true)
+  const [waiver, setWaiver] = useState(null)
   const [toast, setToast] = useState(null)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2000) }
@@ -40,6 +41,13 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
         .order('signed_up_at', { ascending: false })
         .limit(5)
       setAttendance(att || [])
+
+      const { data: waiverData } = await supabase
+        .from('waivers')
+        .select('*')
+        .eq('athlete_id', athleteId)
+        .maybeSingle()
+      setWaiver(waiverData)
 
       setLoading(false)
     }
@@ -121,6 +129,31 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
                     <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>{a.classes?.start_time ? new Date(a.classes.start_time).toLocaleDateString() : new Date(a.signed_up_at).toLocaleDateString()}</span>
                   </div>
                 ))
+              }
+            </div>
+
+            {/* Waiver status */}
+            <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '10px' }}>Waiver</div>
+              {waiver
+                ? <div>
+                    <div style={{ fontSize: '13px', color: 'var(--moss-light)', marginBottom: '6px' }}>✓ Signed {new Date(waiver.signed_at).toLocaleDateString()}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginBottom: '4px' }}>📸 Photo consent: {waiver.photo_video_consent ? 'Yes' : 'No'}</div>
+                    {waiver.emergency_contact_name && (
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ fontSize: '11px', letterSpacing: '1px', color: 'var(--charcoal-light)', textTransform: 'uppercase', marginBottom: '4px' }}>Emergency Contact</div>
+                        <div style={{ fontSize: '13px', color: 'var(--bone)' }}>{waiver.emergency_contact_name} · {waiver.emergency_contact_relationship}</div>
+                        <div style={{ fontSize: '13px', color: 'var(--bone)' }}>{waiver.emergency_contact_phone}</div>
+                      </div>
+                    )}
+                    {waiver.medical_notes && (
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ fontSize: '11px', letterSpacing: '1px', color: 'var(--charcoal-light)', textTransform: 'uppercase', marginBottom: '4px' }}>Medical Notes</div>
+                        <div style={{ fontSize: '13px', color: 'var(--rose-light)' }}>{waiver.medical_notes}</div>
+                      </div>
+                    )}
+                  </div>
+                : <div style={{ fontSize: '13px', color: 'var(--rose)', fontWeight: 'bold' }}>⚠ Waiver not signed</div>
               }
             </div>
 
