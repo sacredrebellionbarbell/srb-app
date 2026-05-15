@@ -37,6 +37,7 @@ export default function Programs({ user, profile }) {
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [logNote, setLogNote] = useState('')
   const [demoVideo, setDemoVideo] = useState(null)
+  const [sectionLogs, setSectionLogs] = useState({})
   const fileRef = useRef()
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
@@ -60,13 +61,31 @@ export default function Programs({ user, profile }) {
   const fetchProgramWorkouts = useCallback(async (programId) => {
     const { data } = await supabase
       .from('program_workouts')
-      .select('*, workouts(id, title, notes, track, workout_sections(*, movements(*, sets(*))))')
+      .select('*, workouts(id, title, notes, track, workout_sections(*, section_logs(*), movements(*, sets(*, set_logs(*)))))')
       .eq('program_id', programId)
       .order('order_index')
     setProgramWorkouts(data || [])
   }, [])
 
   useEffect(() => { if (selectedProgram) fetchProgramWorkouts(selectedProgram.id) }, [selectedProgram, fetchProgramWorkouts])
+
+  const logSetValue = async (setId, movementId, workoutId, value) => {
+    const { error } = await supabase.from('set_logs').upsert(
+      { set_id: setId, movement_id: movementId, workout_id: workoutId, athlete_id: user.id, value },
+      { onConflict: 'set_id,athlete_id' }
+    )
+    if (!error) { showToast('Logged!'); fetchProgramWorkouts(selectedProgram.id) }
+    else showToast('Error: ' + error.message)
+  }
+
+  const logSectionScore = async (sectionId, workoutId, payload) => {
+    const { error } = await supabase.from('section_logs').upsert(
+      { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload },
+      { onConflict: 'section_id,athlete_id' }
+    )
+    if (!error) { showToast('Logged!'); fetchProgramWorkouts(selectedProgram.id) }
+    else showToast('Error: ' + error.message)
+  }
 
   const createProgram = async () => {
     if (!newName.trim()) return
@@ -155,6 +174,14 @@ export default function Programs({ user, profile }) {
 
   const updSec = (i, f, v) => setWSecs(s => s.map((x, j) => j === i ? { ...x, [f]: v } : x))
   const addSec = () => setWSecs(s => [...s, newSec()])
+
+  const moveSec = (i, dir) => {
+    const next = i + dir
+    if (next < 0 || next >= wSecs.length) return
+    const arr = [...wSecs]
+    const tmp = arr[i]; arr[i] = arr[next]; arr[next] = tmp
+    setWSecs(arr)
+  }
   const rmSec = i => setWSecs(s => s.filter((_, j) => j !== i))
   const addMov = i => setWSecs(s => s.map((x, j) => j === i ? { ...x, movements: [...x.movements, newMov()] } : x))
   const rmMov = (si, mi) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.filter((_, k) => k !== mi) } : x))
@@ -236,7 +263,7 @@ export default function Programs({ user, profile }) {
             )}
             {transcribeErr && <p className="auth-error">{transcribeErr}</p>}
             {imagePreview && !transcribing && (
-              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
             )}
           </div>
         )}
@@ -244,7 +271,7 @@ export default function Programs({ user, profile }) {
         {isCoach && addMode === 'edit' && editingPw && (
           <div className="panel" style={{ marginBottom: '1.5rem' }}>
             <div className="panel-title">Edit Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet}
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet}
               onSave={async () => {
                 if (!wTitle.trim()) { return }
                 const wid = editingPw.workouts?.id
@@ -274,7 +301,7 @@ export default function Programs({ user, profile }) {
         {isCoach && addMode === 'scratch' && (
           <div className="panel" style={{ marginBottom: '1.5rem' }}>
             <div className="panel-title">Build Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
           </div>
         )}
 
@@ -300,29 +327,43 @@ export default function Programs({ user, profile }) {
                     </div>
                   )}
                   {pw.workouts?.notes && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '8px' }}>{pw.workouts.notes}</div>}
-                  {(pw.workouts?.workout_sections || []).sort((a, b) => a.order_index - b.order_index).map((sec, si) => (
-                    <div key={si} style={{ marginBottom: '6px' }}>
-                      <div style={{ fontSize: '10px', letterSpacing: '2px', color: 'var(--gold-dark)', textTransform: 'uppercase', marginBottom: '2px' }}>{sec.type}</div>
-                      {(sec.movements || []).map((m, mi) => (
-                        <div key={mi} style={{ fontSize: '13px', color: 'var(--bone)', paddingLeft: '8px' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {m.name}
-                            {m.demo_url && (
-                              <button onClick={e => { e.stopPropagation(); setDemoVideo({ url: m.demo_url, title: m.name }) }}
-                                style={{ background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', borderRadius: '2px', color: 'var(--rose-light)', fontSize: '11px', padding: '2px 8px', cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap' }}>
-                                ▶ Demo
-                              </button>
-                            )}
-                          </span>
-                          {(m.sets || []).length > 0 && (
-                            <span style={{ color: 'var(--charcoal-light)', marginLeft: '8px', fontSize: '12px' }}>
-                              {m.sets.length}×{m.sets[0]?.reps && ` ${m.sets[0].reps}`}{m.sets[0]?.load && ` @ ${m.sets[0].load}`}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
+                  {(pw.workouts?.workout_sections || []).sort((a, b) => a.order_index - b.order_index).map((sec, si) => {
+                    const mySecLog = (sec.section_logs || []).find(sl => sl.athlete_id === user.id)
+                    const scoreType = sec.score_type || 'No Score'
+                    return (
+                      <div key={si} style={{ marginBottom: '10px' }}>
+                        <div style={{ fontSize: '10px', letterSpacing: '2px', color: 'var(--gold-dark)', textTransform: 'uppercase', marginBottom: '6px' }}>{sec.type}{scoreType !== 'No Score' && ` · ${scoreType}`}</div>
+                        {sec.notes && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginBottom: '6px', fontStyle: 'italic' }}>{sec.notes}</div>}
+                        {(sec.movements || []).map((m, mi) => (
+                          <div key={mi} style={{ paddingLeft: '8px', marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                              <span style={{ fontSize: '13px', color: 'var(--bone)', fontWeight: '500' }}>{m.name}</span>
+                              {m.demo_url && (
+                                <button onClick={e => { e.stopPropagation(); setDemoVideo({ url: m.demo_url, title: m.name }) }}
+                                  style={{ background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', borderRadius: '2px', color: 'var(--rose-light)', fontSize: '11px', padding: '2px 8px', cursor: 'pointer', letterSpacing: '1px', whiteSpace: 'nowrap' }}>
+                                  ▶ Demo
+                                </button>
+                              )}
+                            </div>
+                            {m.notes && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginBottom: '4px', fontStyle: 'italic' }}>{m.notes}</div>}
+                            {(m.sets || []).map((st, sti) => {
+                              const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
+                              return (
+                                <div key={sti} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0', fontSize: '13px' }}>
+                                  <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {st.set_number}</span>
+                                  {st.reps && <span style={{ color: 'var(--bone)' }}>{st.reps} reps</span>}
+                                  {st.load && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>@ {st.load}</span>}
+                                  {st.rpe && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>RPE {st.rpe}</span>}
+                                  <SetLogInput value={myLog?.value || ''} onSave={val => logSetValue(st.id, m.id, pw.workouts.id, val)} />
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ))}
+                        <ProgramSectionNotesInput myLog={mySecLog} onSave={notes => logSectionScore(sec.id, pw.workouts.id, { score: mySecLog?.score || null, rounds: mySecLog?.rounds || null, reps: mySecLog?.reps || null, notes })} />
+                      </div>
+                    )
+                  })}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', flexShrink: 0 }}>
                   {pw.completed_at
@@ -433,7 +474,55 @@ export default function Programs({ user, profile }) {
   )
 }
 
-function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec, rmSec, addMov, rmMov, updMov, addSet, rmSet, updSet, onSave, onCancel, imagePreview }) {
+
+function SetLogInput({ value, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value || '')
+  useEffect(() => { setVal(value || '') }, [value])
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)}
+        style={{ marginLeft: 'auto', background: val ? 'rgba(200,169,106,0.1)' : 'transparent', border: '1px solid', borderColor: val ? 'var(--gold-dark)' : 'var(--border)', borderRadius: '2px', color: val ? 'var(--gold-light)' : 'var(--charcoal-light)', padding: '3px 10px', cursor: 'pointer', fontSize: '13px', fontFamily: val ? 'Cinzel, serif' : 'Lato, sans-serif', whiteSpace: 'nowrap', minWidth: '60px', textAlign: 'center' }}>
+        {val || 'Log'}
+      </button>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', gap: '4px', marginLeft: 'auto', alignItems: 'center' }}>
+      <input autoFocus type="text" value={val} onChange={e => setVal(e.target.value)} placeholder="lbs/kg"
+        onKeyDown={e => { if (e.key === 'Enter') { onSave(val); setEditing(false) } if (e.key === 'Escape') setEditing(false) }}
+        style={{ width: '80px', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold)', borderRadius: '2px', padding: '4px 8px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '13px', outline: 'none' }} />
+      <button onClick={() => { onSave(val); setEditing(false) }} className="btn-sm" style={{ padding: '4px 8px', fontSize: '11px' }}>✓</button>
+    </div>
+  )
+}
+
+function ProgramSectionNotesInput({ myLog, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [notes, setNotes] = useState(myLog?.notes || '')
+  useEffect(() => { setNotes(myLog?.notes || '') }, [myLog])
+  if (!editing) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <button onClick={() => setEditing(true)}
+          style={{ background: 'transparent', border: 'none', color: myLog?.notes ? 'var(--moss-light)' : 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', letterSpacing: '1px', padding: '2px 0', textAlign: 'left' }}>
+          {myLog?.notes ? `📝 ${myLog.notes}` : '+ Add scaling / notes'}
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+      <input autoFocus type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Scaling, notes..."
+        onKeyDown={e => { if (e.key === 'Enter') { onSave(notes); setEditing(false) } if (e.key === 'Escape') setEditing(false) }}
+        style={{ flex: 1, background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold)', borderRadius: '2px', padding: '6px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '13px', outline: 'none' }} />
+      <button onClick={() => { onSave(notes); setEditing(false) }} className="btn-sm" style={{ padding: '6px 10px', fontSize: '11px' }}>✓</button>
+      <button onClick={() => setEditing(false)} className="btn-ghost" style={{ padding: '6px 10px', fontSize: '11px' }}>✕</button>
+    </div>
+  )
+}
+
+function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec, rmSec, moveSec, addMov, rmMov, updMov, addSet, rmSet, updSet, onSave, onCancel, imagePreview }) {
   return (
     <div>
       {imagePreview && <img src={imagePreview} alt="Workout" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border)', marginBottom: '1rem' }} />}
@@ -445,7 +534,13 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
           <div className="ws-head">
             <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
             <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-            {secs.length > 1 && <button className="btn-rm" onClick={() => rmSec(si)}>×</button>}
+            {secs.length > 1 && (
+                <>
+                  <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
+                  <button className="btn-rm" onClick={() => moveSec(si, 1)} disabled={si === secs.length - 1} title="Move down" style={{ fontSize: '14px' }}>↓</button>
+                  <button className="btn-rm" onClick={() => rmSec(si)}>×</button>
+                </>
+              )}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
           {sec.movements.map((mov, mi) => (
