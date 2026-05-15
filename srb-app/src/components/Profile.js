@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
+import MemberAgreement from './MemberAgreement'
+import CoopBylaws from './CoopBylaws'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
@@ -15,6 +17,7 @@ function initials(name) { return (name || '?').split(' ').map(n => n[0]).join(''
 export default function Profile({ user, profile, onProfileUpdate }) {
   const [results, setResults] = useState([])
   const [prs, setPrs] = useState([])
+  const [showDoc, setShowDoc] = useState(null) // null | 'agreement' | 'bylaws'
   const [attendance, setAttendance] = useState([])
   const [uploading, setUploading] = useState(false)
   const [editName, setEditName] = useState(false)
@@ -252,6 +255,30 @@ export default function Profile({ user, profile, onProfileUpdate }) {
       <div className="panel" style={{ marginTop: '1.5rem' }}>
         <div className="panel-title">Membership</div>
         <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem' }}>Manage your Sacred Rebellion membership below.</p>
+        {/* Documents */}
+        <div style={{ marginBottom: '2rem' }}>
+          <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', color: 'var(--gold)', textTransform: 'uppercase', marginBottom: '1rem', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>Documents</div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button className={profile?.member_agreement_signed ? 'btn-ghost' : 'btn-sm'} onClick={() => setShowDoc(showDoc === 'agreement' ? null : 'agreement')} style={{ fontSize: '12px' }}>
+              {profile?.member_agreement_signed ? '✓ ' : '⚠ '}Member Agreement
+            </button>
+            <button className="btn-ghost" onClick={() => setShowDoc(showDoc === 'bylaws' ? null : 'bylaws')} style={{ fontSize: '12px' }}>
+              Co-op Bylaws
+            </button>
+          </div>
+          {showDoc === 'agreement' && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <MemberAgreement user={user} profile={profile} readOnly={profile?.member_agreement_signed}
+                onSigned={() => { setShowDoc(null); window.location.reload() }} />
+            </div>
+          )}
+          {showDoc === 'bylaws' && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <CoopBylaws />
+            </div>
+          )}
+        </div>
+
         <div className="stripe-wrap">
           <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
         </div>
