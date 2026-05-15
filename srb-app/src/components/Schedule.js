@@ -32,11 +32,12 @@ export default function Schedule({ user, profile }) {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [show247, setShow247] = useState(false)
+  const [showCoachCheckin, setShowCoachCheckin] = useState(false)
   const [checkinTime, setCheckinTime] = useState('6:00 AM')
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
-  const canSignUp = ['Class Access', 'Both'].includes(profile?.membership_type) || isCoach
+  const canSignUp = ['Class Access', 'Both'].includes(profile?.membership_type)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -123,6 +124,7 @@ export default function Schedule({ user, profile }) {
   // Sign up for a one-time class
   const signup = async (classId) => {
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
+    if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
     const { error } = await supabase.from('class_signups').insert({ class_id: classId, athlete_id: user.id })
     if (error) showToast('Already signed up')
     else { showToast('Signed up!'); fetchClasses() }
@@ -136,6 +138,7 @@ export default function Schedule({ user, profile }) {
   // Sign up for a recurring class instance
   const signupInstance = async (instanceId) => {
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
+    if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
     const { error } = await supabase.from('instance_signups').insert({ instance_id: instanceId, athlete_id: user.id })
     if (error) showToast('Already signed up')
     else { showToast('Signed up!'); fetchClasses() }
@@ -158,6 +161,24 @@ export default function Schedule({ user, profile }) {
     const { error } = await supabase.from('instance_signups').insert({ instance_id: instanceId, athlete_id: athleteId })
     if (error) showToast('Already in class')
     else { showToast('Athlete added'); fetchClasses() }
+  }
+
+  // Coach checks in an athlete manually
+  const coachCheckinAthlete = async (athleteId, athleteName) => {
+    if (!has247) return
+    const { error } = await supabase.from('class_signups').insert({
+      class_id: has247.id, athlete_id: athleteId,
+      checkin_time: checkinTime, is_247_checkin: true
+    })
+    if (error) { showToast(athleteName + ' already checked in today') }
+    else {
+      await supabase.from('notifications').insert({
+        message: `${athleteName} was checked in by coach at ${checkinTime}`,
+        type: '247_checkin', athlete_id: athleteId
+      })
+      showToast(athleteName + ' checked in!')
+      fetchClasses()
+    }
   }
 
   const checkin247 = async () => {
@@ -195,18 +216,44 @@ export default function Schedule({ user, profile }) {
       {has247 && (
         <div className="class-247">
           <div className="class-247-title">24/7 Access</div>
-          <div className="class-247-note">Coming in outside of class time? Let Sarah know you're heading in.</div>
-          {show247
-            ? <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <select value={checkinTime} onChange={e => setCheckinTime(e.target.value)}
-                  style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '8px 12px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }}>
-                  {CHECKIN_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <button className="btn-sm" onClick={checkin247}>Confirm Check-In</button>
-                <button className="btn-ghost" onClick={() => setShow247(false)}>Cancel</button>
-              </div>
-            : <button className="btn-sm" onClick={() => setShow247(true)}>Check In for 24/7 Access</button>
-          }
+          {isCoach ? (
+            <div>
+              <div className="class-247-note">Check in an athlete for 24/7 access.</div>
+              {showCoachCheckin
+                ? <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <select value={checkinTime} onChange={e => setCheckinTime(e.target.value)}
+                      style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '8px 12px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }}>
+                      {CHECKIN_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {allMembers.map(m => (
+                        <button key={m.id} className="btn-ghost" style={{ fontSize: '11px' }}
+                          onClick={() => { coachCheckinAthlete(m.id, m.name); setShowCoachCheckin(false) }}>
+                          {m.name}
+                        </button>
+                      ))}
+                    </div>
+                    <button className="btn-ghost" onClick={() => setShowCoachCheckin(false)}>Cancel</button>
+                  </div>
+                : <button className="btn-sm" style={{ marginTop: '8px' }} onClick={() => setShowCoachCheckin(true)}>Check In Athlete</button>
+              }
+            </div>
+          ) : (
+            <div>
+              <div className="class-247-note">Coming in outside of class time? Let Sarah know you're heading in.</div>
+              {show247
+                ? <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select value={checkinTime} onChange={e => setCheckinTime(e.target.value)}
+                      style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '8px 12px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }}>
+                      {CHECKIN_TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button className="btn-sm" onClick={checkin247}>Confirm Check-In</button>
+                    <button className="btn-ghost" onClick={() => setShow247(false)}>Cancel</button>
+                  </div>
+                : <button className="btn-sm" onClick={() => setShow247(true)}>Check In for 24/7 Access</button>
+              }
+            </div>
+          )}
         </div>
       )}
 
