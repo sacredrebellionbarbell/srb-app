@@ -81,6 +81,7 @@ export default function Workouts({ user, profile }) {
         results(*, profiles(name, avatar_url), reactions(*))
       `)
       .eq('date', toISO(currentDate))
+      .not('date', 'is', null)
       .order('id', { ascending: false })
     setWorkouts(data || [])
     if (data?.length > 0) setExpandedId(data[0].id)
