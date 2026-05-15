@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
+const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
@@ -254,6 +255,11 @@ export default function Profile({ user, profile, onProfileUpdate }) {
         <div className="stripe-wrap">
           <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
         </div>
+        {STRIPE_TABLE_ID_2 && (
+          <div className="stripe-wrap" style={{ marginTop: '1rem' }}>
+            <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID_2} publishable-key={STRIPE_PK} customer-email={user.email} />
+          </div>
+        )}
       </div>
 
       {toast && <div className="toast">{toast}</div>}
