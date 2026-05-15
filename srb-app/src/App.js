@@ -8,6 +8,7 @@ import PhotoWorkout from './components/PhotoWorkout'
 import Profile from './components/Profile'
 import Schedule from './components/Schedule'
 import CRM from './components/CRM'
+import WaiverForm from './components/WaiverForm'
 import Programs from './components/Programs'
 
 export default function App() {
@@ -52,6 +53,17 @@ export default function App() {
   )
 
   if (!session) return <div className="app"><Auth /></div>
+
+  // Gate access behind waiver for non-coaches
+  if (profile && !profile.waiver_signed && profile.role !== 'coach') {
+    return (
+      <div className="app">
+        <div style={{ padding: '2rem 1.5rem', maxWidth: '760px', margin: '0 auto' }}>
+          <WaiverForm user={session.user} profile={profile} onSigned={() => fetchProfile(session.user.id)} />
+        </div>
+      </div>
+    )
+  }
 
   const isCoach = profile?.role === 'coach'
 
