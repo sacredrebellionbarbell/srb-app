@@ -137,7 +137,8 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
               <div style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '10px' }}>Waiver</div>
               {waiver
                 ? <div>
-                    <div style={{ fontSize: '13px', color: 'var(--moss-light)', marginBottom: '6px' }}>✓ Signed {new Date(waiver.signed_at).toLocaleDateString()}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--moss-light)', marginBottom: '6px' }}>✓ Waiver signed {new Date(waiver.signed_at).toLocaleDateString()}</div>
+                    <div style={{ fontSize: '12px', color: athlete?.member_agreement_signed ? 'var(--moss-light)' : 'var(--rose)', marginBottom: '4px' }}>{athlete?.member_agreement_signed ? '✓ Member agreement signed' : '⚠ Member agreement not signed'}</div>
                     <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginBottom: '4px' }}>📸 Photo consent: {waiver.photo_video_consent ? 'Yes' : 'No'}</div>
                     {waiver.emergency_contact_name && (
                       <div style={{ marginTop: '8px' }}>
