@@ -9,6 +9,7 @@ import Profile from './components/Profile'
 import Schedule from './components/Schedule'
 import CRM from './components/CRM'
 import WaiverForm from './components/WaiverForm'
+import Onboarding from './components/Onboarding'
 import Programs from './components/Programs'
 
 export default function App() {
@@ -54,14 +55,23 @@ export default function App() {
 
   if (!session) return <div className="app"><Auth /></div>
 
-  // Gate access behind waiver for non-coaches
-  if (profile && !profile.waiver_signed && profile.role !== 'coach') {
+  // Gate access behind onboarding for non-coaches
+  const needsOnboarding = profile && profile.role !== 'coach' && (
+    !profile.waiver_signed ||
+    !profile.member_agreement_signed ||
+    !profile.membership_type ||
+    profile.membership_type === 'None' ||
+    !profile.name ||
+    !profile.phone
+  )
+
+  if (needsOnboarding) {
     return (
-      <div className="app">
-        <div style={{ padding: '2rem 1.5rem', maxWidth: '760px', margin: '0 auto' }}>
-          <WaiverForm user={session.user} profile={profile} onSigned={() => fetchProfile(session.user.id)} />
-        </div>
-      </div>
+      <Onboarding
+        user={session.user}
+        profile={profile}
+        onComplete={() => fetchProfile(session.user.id)}
+      />
     )
   }
 
