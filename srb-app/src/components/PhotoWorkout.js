@@ -23,7 +23,7 @@ export default function PhotoWorkout({ user, onPosted }) {
   const [track, setTrack] = useState(TRACKS[0])
   const [notes, setNotes] = useState('')
   const [secs, setSecs] = useState([newSec()])
-  const [usePrivateTrack, setUsePrivateTrack] = useState(false)
+  const [usePrivateTrack, setUsePrivateTrack] = useState(true)
   const [privateTrackId, setPrivateTrackId] = useState(null)
   const [assignedAthleteId, setAssignedAthleteId] = useState(null)
 
