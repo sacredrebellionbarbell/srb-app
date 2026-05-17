@@ -230,8 +230,10 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {isCoach && (
-            <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={e => { e.stopPropagation(); onEdit() }}>Edit</button>
-            <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={e => { e.stopPropagation(); if (window.confirm('Delete this workout? This cannot be undone.')) onDelete() }}>Delete</button>
+            <>
+              <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={e => { e.stopPropagation(); onEdit() }}>Edit</button>
+              <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={e => { e.stopPropagation(); if (window.confirm('Delete this workout? This cannot be undone.')) onDelete() }}>Delete</button>
+            </>
           )}
           <span style={{ color: 'var(--charcoal-light)', fontSize: '18px' }}>{expanded ? '−' : '+'}</span>
         </div>
