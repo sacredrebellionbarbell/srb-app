@@ -62,6 +62,11 @@ export default function Workouts({ user, profile }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
+  const deleteWorkout = async (workoutId) => {
+    await supabase.from('workouts').delete().eq('id', workoutId)
+    fetchWorkouts()
+  }
+
   const fetchWorkouts = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase
@@ -172,6 +177,7 @@ export default function Workouts({ user, profile }) {
           onToggleReaction={toggleReaction}
           onPrepare={() => setPrepare({ workout: w, movements: getStrengthMovements(w) })}
           onEdit={() => setEditing(w)}
+          onDelete={() => deleteWorkout(w.id)}
           onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
@@ -206,7 +212,7 @@ export default function Workouts({ user, profile }) {
   )
 }
 
-function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onAthleteClick }) {
+function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onDelete, onAthleteClick }) {
   const [expandedAthlete, setExpandedAthlete] = useState(null)
   const [demoVideo, setDemoVideo] = useState(null)
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
@@ -225,6 +231,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {isCoach && (
             <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={e => { e.stopPropagation(); onEdit() }}>Edit</button>
+            <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={e => { e.stopPropagation(); if (window.confirm('Delete this workout? This cannot be undone.')) onDelete() }}>Delete</button>
           )}
           <span style={{ color: 'var(--charcoal-light)', fontSize: '18px' }}>{expanded ? '−' : '+'}</span>
         </div>
