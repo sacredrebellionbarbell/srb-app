@@ -10,9 +10,17 @@ import Schedule from './components/Schedule'
 import CRM from './components/CRM'
 import WaiverForm from './components/WaiverForm'
 import Onboarding from './components/Onboarding'
+import Kiosk from './components/Kiosk'
 import Programs from './components/Programs'
 
-export default function App() {
+function KioskWrapper() {
+  if (window.location.pathname === '/kiosk') return <Kiosk />
+  return <AppMain />
+}
+
+export default KioskWrapper
+
+function AppMain() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('workouts')
