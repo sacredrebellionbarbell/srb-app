@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
-const PCTS = [50, 60, 70, 80, 85, 90, 95]
+const PCTS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
@@ -202,10 +202,22 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
             </div>
           )}
 
-          {selectedSets.length === 0 && oneRM && (
+          {oneRM && (
             <>
-              <div className="past-title">Reference Percentages</div>
+              <div className="past-title" style={{ marginTop: selectedSets.length > 0 ? '1.5rem' : 0 }}>Reference Percentages — Est. 1RM: {oneRM} lbs</div>
               <div className="pct-grid">
+                {/* Assigned percentages from workout first */}
+                {selectedSets.filter(s => s.load && s.load.includes('%')).map((s, i) => {
+                  const pct = parseFloat(s.load)
+                  if (isNaN(pct)) return null
+                  return (
+                    <div key={`assigned-${i}`} className="pct-card" style={{ border: '1px solid var(--gold-dark)', background: 'rgba(200,169,106,0.08)' }}>
+                      <div className="pct-pct" style={{ color: 'var(--gold-light)' }}>{pct}% ★</div>
+                      <div className="pct-val">{Math.round(oneRM * pct / 100)} lbs</div>
+                    </div>
+                  )
+                })}
+                {/* Standard 5% increments */}
                 {PCTS.map(p => (
                   <div key={p} className="pct-card">
                     <div className="pct-pct">{p}%</div>
