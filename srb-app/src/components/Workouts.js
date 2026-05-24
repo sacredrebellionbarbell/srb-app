@@ -5,7 +5,6 @@ import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
 import VideoModal from './VideoModal'
 import AdHocLog from './AdHocLog'
-import AdHocLog from './AdHocLog'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
