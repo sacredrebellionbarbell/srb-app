@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
+import usePushNotifications from '../hooks/usePushNotifications'
 import AthletePanel from './AthletePanel'
 
 function toISO(d) { return d.toISOString().split('T')[0] }
@@ -37,6 +38,7 @@ export default function Schedule({ user, profile }) {
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
+  const { permission, subscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(user)
   const canSignUp = ['Class Access', 'Both'].includes(profile?.membership_type)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -176,6 +178,14 @@ export default function Schedule({ user, profile }) {
         message: `${athleteName} was checked in by coach at ${checkinTime}`,
         type: '247_checkin', athlete_id: athleteId
       })
+      fetch('/api/push-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '🏋️ Open Gym Check-In',
+          body: `${athleteName} was checked in by coach at ${checkinTime}`
+        })
+      }).catch(err => console.error('Push notify error:', err))
       showToast(athleteName + ' checked in!')
       fetchClasses()
     }
@@ -193,6 +203,14 @@ export default function Schedule({ user, profile }) {
         message: `${profile?.name || 'An athlete'} checked in for 24/7 access at ${checkinTime}`,
         type: '247_checkin', athlete_id: user.id
       })
+      fetch('/api/push-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '🏋️ Open Gym Check-In',
+          body: `${profile?.name || 'An athlete'} checked in at ${checkinTime}`
+        })
+      }).catch(err => console.error('Push notify error:', err))
       showToast(`Checked in for ${checkinTime} — Sarah has been notified!`)
       setShow247(false); fetchClasses()
     }
@@ -235,7 +253,17 @@ export default function Schedule({ user, profile }) {
                     </div>
                     <button className="btn-ghost" onClick={() => setShowCoachCheckin(false)}>Cancel</button>
                   </div>
-                : <button className="btn-sm" style={{ marginTop: '8px' }} onClick={() => setShowCoachCheckin(true)}>Check In Athlete</button>
+                : <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+                  <button className="btn-sm" onClick={() => setShowCoachCheckin(true)}>Check In Athlete</button>
+                  {!subscribed
+                    ? <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={subscribe} disabled={pushLoading}>
+                        {pushLoading ? 'Enabling...' : '🔔 Enable Check-In Alerts'}
+                      </button>
+                    : <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--moss-light)' }} onClick={unsubscribe}>
+                        🔔 Alerts On
+                      </button>
+                  }
+                </div>
               }
             </div>
           ) : (
