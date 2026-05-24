@@ -188,6 +188,7 @@ export default function Programs({ user, profile }) {
   const updMov = (si, mi, f, v) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, [f]: v } : m) } : x))
   const addSet = (si, mi) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, sets: [...m.sets, newSet(m.sets.length + 1)] } : m) } : x))
   const rmSet = (si, mi, sti) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : x))
+  const copyDown = (si, mi, sti, f) => setWSecs(s => s.map((x, j) => j !== si ? x : { ...x, movements: x.movements.map((m, k) => k !== mi ? m : { ...m, sets: m.sets.map((st, l) => l <= sti ? st : { ...st, [f]: m.sets[sti][f] }) }) }))
   const updSet = (si, mi, sti, f, v) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : x))
 
   const completedCount = programWorkouts.filter(pw => pw.completed_at).length
@@ -543,7 +544,7 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
               )}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
-          {sec.movements.map((mov, mi) => (
+          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
               <div className="mv-block-header">
                 <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder="Movement name" />
@@ -555,16 +556,25 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
               {mov.sets.map((st, sti) => (
                 <div key={st.id} className="set-builder-row">
                   <span className="set-num-label">{st.set_number}</span>
-                  <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
-                  <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="80%" />
-                  <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="80%" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
                   {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
                 </div>
               ))}
               <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
             </div>
           ))}
-          <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>
+          {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
         </div>
       ))}
       <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
