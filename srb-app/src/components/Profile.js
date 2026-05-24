@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import MemberAgreement from './MemberAgreement'
+import AdHocLog from './AdHocLog'
 import CoopBylaws from './CoopBylaws'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
@@ -17,7 +18,8 @@ function initials(name) { return (name || '?').split(' ').map(n => n[0]).join(''
 export default function Profile({ user, profile, onProfileUpdate }) {
   const [results, setResults] = useState([])
   const [prs, setPrs] = useState([])
-  const [showDoc, setShowDoc] = useState(null) // null | 'agreement' | 'bylaws'
+  const [showDoc, setShowDoc] = useState(null)
+  const [showAdHoc, setShowAdHoc] = useState(false) // null | 'agreement' | 'bylaws'
   const [attendance, setAttendance] = useState([])
   const [uploading, setUploading] = useState(false)
   const [editName, setEditName] = useState(false)
@@ -255,6 +257,21 @@ export default function Profile({ user, profile, onProfileUpdate }) {
       <div className="panel" style={{ marginTop: '1.5rem' }}>
         <div className="panel-title">Membership</div>
         <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem' }}>Manage your Sacred Rebellion membership below.</p>
+        {/* Log a Movement */}
+        <div style={{ marginBottom: '1.5rem' }}>
+          <button className="btn-ghost" style={{ fontSize: '13px', width: '100%' }} onClick={() => setShowAdHoc(true)}>
+            + Log a Movement
+          </button>
+        </div>
+
+        {showAdHoc && (
+          <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') setShowAdHoc(false) }}>
+            <div className="modal">
+              <AdHocLog user={user} onClose={() => setShowAdHoc(false)} defaultDate={new Date().toISOString().split('T')[0]} />
+            </div>
+          </div>
+        )}
+
         {/* Documents */}
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', color: 'var(--gold)', textTransform: 'uppercase', marginBottom: '1rem', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>Documents</div>
