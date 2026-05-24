@@ -31,6 +31,14 @@ export default function PostWorkout({ user, onPosted }) {
   }, [])
 
   const addSec = () => setSecs([...secs, newSec()])
+
+  const moveSec = (i, dir) => {
+    const next = i + dir
+    if (next < 0 || next >= secs.length) return
+    const arr = [...secs]
+    const tmp = arr[i]; arr[i] = arr[next]; arr[next] = tmp
+    setSecs(arr)
+  }
   const rmSec = i => setSecs(secs.filter((_, j) => j !== i))
   const updSec = (i, f, v) => setSecs(secs.map((s, j) => j === i ? { ...s, [f]: v } : s))
   const addMov = i => setSecs(secs.map((s, j) => j === i ? { ...s, movements: [...s.movements, newMov()] } : s))
@@ -38,6 +46,13 @@ export default function PostWorkout({ user, onPosted }) {
   const updMov = (si, mi, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, [f]: v } : m) } : s))
   const addSet = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: [...m.sets, newSet(m.sets.length + 1)] } : m) } : s))
   const rmSet = (si, mi, sti) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : s))
+  const copyDown = (si, mi, sti, f) => {
+    setSecs(s => s.map((x, j) => j !== si ? x : {
+      ...x, movements: x.movements.map((m, k) => k !== mi ? m : {
+        ...m, sets: m.sets.map((st, l) => l <= sti ? st : { ...st, [f]: m.sets[sti][f] })
+      })
+    }))
+  }
   const updSet = (si, mi, sti, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : s))
 
   const submit = async () => {
@@ -153,11 +168,17 @@ export default function PostWorkout({ user, onPosted }) {
           <div className="ws-head">
             <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
             <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-            {secs.length > 1 && <button className="btn-rm" onClick={() => rmSec(si)}>×</button>}
+            {secs.length > 1 && (
+                <>
+                  <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
+                  <button className="btn-rm" onClick={() => moveSec(si, 1)} disabled={si === secs.length - 1} title="Move down" style={{ fontSize: '14px' }}>↓</button>
+                  <button className="btn-rm" onClick={() => rmSec(si)}>×</button>
+                </>
+              )}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes / workout description (optional)" />
 
-          {sec.movements.map((mov, mi) => (
+          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
               <div className="mv-block-header">
                 <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder="Movement name (e.g. Back Squat)" />
@@ -171,16 +192,25 @@ export default function PostWorkout({ user, onPosted }) {
               {mov.sets.map((st, sti) => (
                 <div key={st.id} className="set-builder-row">
                   <span className="set-num-label">{st.set_number}</span>
-                  <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" />
-                  <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" />
-                  <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
+                    {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                  </div>
                   {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
                 </div>
               ))}
               <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
             </div>
           ))}
-          <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>
+          {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
         </div>
       ))}
       <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
