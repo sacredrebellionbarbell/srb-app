@@ -4,7 +4,6 @@ import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
 import VideoModal from './VideoModal'
-import AdHocLog from './AdHocLog'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
@@ -57,7 +56,6 @@ export default function Workouts({ user, profile }) {
   const [expandedId, setExpandedId] = useState(null)
   const [prepare, setPrepare] = useState(null)
   const [editing, setEditing] = useState(null)
-  const [showAdHoc, setShowAdHoc] = useState(false)
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
@@ -155,19 +153,6 @@ export default function Workouts({ user, profile }) {
         </div>
         <button className="date-nav-btn" onClick={nextDay}>›</button>
       </div>
-
-      {/* Log a Movement button */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-        <button className="btn-ghost" style={{ fontSize: '12px' }} onClick={() => setShowAdHoc(true)}>+ Log a Movement</button>
-      </div>
-
-      {showAdHoc && (
-        <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') setShowAdHoc(false) }}>
-          <div className="modal">
-            <AdHocLog user={user} onClose={() => setShowAdHoc(false)} defaultDate={toISO(currentDate)} />
-          </div>
-        </div>
-      )}
 
       {loading && <div className="loading">Loading...</div>}
 
