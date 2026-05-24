@@ -58,7 +58,6 @@ export default function Workouts({ user, profile }) {
   const [prepare, setPrepare] = useState(null)
   const [editing, setEditing] = useState(null)
   const [showAdHoc, setShowAdHoc] = useState(false)
-  const [showAdHoc, setShowAdHoc] = useState(false)
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
