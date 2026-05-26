@@ -154,6 +154,35 @@ export default function Workouts({ user, profile }) {
         <button className="date-nav-btn" onClick={nextDay}>›</button>
       </div>
 
+      {/* Quick date jump */}
+      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '1rem', justifyContent: 'center' }}>
+        {[
+          { label: 'Today', days: 0 },
+          { label: '+1W', days: 7 },
+          { label: '+2W', days: 14 },
+          { label: '+3W', days: 21 },
+          { label: '+4W', days: 28 },
+          { label: '+6W', days: 42 },
+          { label: '+8W', days: 56 },
+          { label: '-1W', days: -7 },
+          { label: '-2W', days: -14 },
+        ].map(({ label, days }) => {
+          const d = new Date()
+          d.setDate(d.getDate() + days)
+          const isActive = toISO(currentDate) === toISO(d)
+          return (
+            <button key={label} onClick={() => setCurrentDate(new Date(d))}
+              className={isActive ? 'btn-sm' : 'btn-ghost'}
+              style={{ fontSize: '10px', padding: '3px 8px' }}>
+              {label}
+            </button>
+          )
+        })}
+        <input type="date" value={toISO(currentDate)}
+          onChange={e => { if (e.target.value) setCurrentDate(new Date(e.target.value + 'T12:00:00')) }}
+          style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '3px 6px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '11px', outline: 'none', cursor: 'pointer' }} />
+      </div>
+
       {loading && <div className="loading">Loading...</div>}
 
       {!loading && workouts.length === 0 && (
