@@ -72,7 +72,10 @@ export default function Workouts({ user, profile }) {
 
   const fetchWorkouts = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
+    const membershipType = profile?.membership_type
+    const PUBLIC_TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
+
+    let query = supabase
       .from('workouts')
       .select(`
         *,
@@ -91,10 +94,30 @@ export default function Workouts({ user, profile }) {
       .eq('date', toISO(currentDate))
       .not('date', 'is', null)
       .order('id', { ascending: false })
+
+    // Filter by membership type for non-coaches
+    if (!isCoach) {
+      if (membershipType === 'Class Access') {
+        // Public tracks only — no private workouts
+        query = query.in('track', PUBLIC_TRACKS)
+      } else if (membershipType === 'Personal Training' || membershipType === 'Nutrition') {
+        // Private track only — their assigned workouts
+        query = query.or(`assigned_athlete_id.eq.${user.id},track.in.(${PUBLIC_TRACKS.map(t => `"${t}"`).join(',')})`)
+      } else if (membershipType === 'Both') {
+        // Public tracks + their private workouts
+        query = query.or(`track.in.(${PUBLIC_TRACKS.map(t => `"${t}"`).join(',')}),assigned_athlete_id.eq.${user.id}`)
+      }
+      // None/null — show public tracks only as default
+      else {
+        query = query.in('track', PUBLIC_TRACKS)
+      }
+    }
+
+    const { data } = await query
     setWorkouts(data || [])
     if (data?.length > 0) setExpandedId(data[0].id)
     setLoading(false)
-  }, [currentDate])
+  }, [currentDate, isCoach, profile?.membership_type, user.id])
 
   useEffect(() => { fetchWorkouts() }, [fetchWorkouts])
 
