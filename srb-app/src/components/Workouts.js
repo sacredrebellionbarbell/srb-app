@@ -98,18 +98,19 @@ export default function Workouts({ user, profile }) {
     // Filter by membership type for non-coaches
     if (!isCoach) {
       if (membershipType === 'Class Access') {
-        // Public tracks only — no private workouts
+        // Public tracks only
         query = query.in('track', PUBLIC_TRACKS)
-      } else if (membershipType === 'Personal Training' || membershipType === 'Nutrition') {
-        // Private track only — their assigned workouts
-        query = query.or(`assigned_athlete_id.eq.${user.id},track.in.(${PUBLIC_TRACKS.map(t => `"${t}"`).join(',')})`)
+      } else if (membershipType === 'Personal Training' || membershipType === 'Online Training' || membershipType === 'Nutrition') {
+        // Private track only — assigned workouts
+        query = query.eq('assigned_athlete_id', user.id)
       } else if (membershipType === 'Both') {
-        // Public tracks + their private workouts
+        // Public tracks + private workouts
         query = query.or(`track.in.(${PUBLIC_TRACKS.map(t => `"${t}"`).join(',')}),assigned_athlete_id.eq.${user.id}`)
-      }
-      // None/null — show public tracks only as default
-      else {
-        query = query.in('track', PUBLIC_TRACKS)
+      } else {
+        // No membership — return nothing
+        setWorkouts([])
+        setLoading(false)
+        return
       }
     }
 
@@ -243,8 +244,16 @@ export default function Workouts({ user, profile }) {
 
       {!loading && workouts.length === 0 && (
         <div className="empty">
-          <h3>{isFuture ? 'Nothing posted yet' : 'Rest day'}</h3>
-          <p>{isFuture ? 'Check back when programming is posted.' : 'No workout posted for this day.'}</p>
+          {(!profile?.membership_type || profile?.membership_type === 'None') && !isCoach
+            ? <>
+                <h3>No Active Membership</h3>
+                <p>Set up your membership in the Profile tab to access programming.</p>
+              </>
+            : <>
+                <h3>{isFuture ? 'Nothing posted yet' : 'Rest day'}</h3>
+                <p>{isFuture ? 'Check back when programming is posted.' : 'No workout posted for this day.'}</p>
+              </>
+          }
         </div>
       )}
 
