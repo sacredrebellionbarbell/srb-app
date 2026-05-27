@@ -412,7 +412,7 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
         {isSignedUp && <span style={{ color: 'var(--moss-light)', marginRight: '12px' }}>✓ You're in</span>}
         {spots > 0 ? `${spots} spot${spots !== 1 ? 's' : ''} remaining` : 'Class full'}
       </div>
-      {signups.length > 0 && (
+      {signups.length > 0 && isCoach && (
         <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
           {signups.map((s, i) => (
             <span key={i}
@@ -421,6 +421,11 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
               {s.profiles?.name || 'Athlete'}
             </span>
           ))}
+        </div>
+      )}
+      {signups.length > 0 && !isCoach && isSignedUp && (
+        <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '6px' }}>
+          {signups.length} athlete{signups.length !== 1 ? 's' : ''} signed up
         </div>
       )}
       {isCoach && (
