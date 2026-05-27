@@ -57,6 +57,9 @@ export default function Workouts({ user, profile }) {
   const [prepare, setPrepare] = useState(null)
   const [editing, setEditing] = useState(null)
   const [toast, setToast] = useState(null)
+  const [announcement, setAnnouncement] = useState(null)
+  const [editingAnnouncement, setEditingAnnouncement] = useState(false)
+  const [announcementText, setAnnouncementText] = useState('')
   const [athletePanel, setAthletePanel] = useState(null)
   const isCoach = profile?.role === 'coach'
 
@@ -94,6 +97,27 @@ export default function Workouts({ user, profile }) {
   }, [currentDate])
 
   useEffect(() => { fetchWorkouts() }, [fetchWorkouts])
+
+  useEffect(() => {
+    supabase.from('announcements').select('*').eq('active', true).order('created_at', { ascending: false }).limit(1)
+      .then(({ data }) => { if (data?.[0]) setAnnouncement(data[0]) })
+  }, [])
+
+  const saveAnnouncement = async () => {
+    if (!announcementText.trim()) return
+    // Deactivate old announcements
+    await supabase.from('announcements').update({ active: false }).eq('active', true)
+    const { data } = await supabase.from('announcements')
+      .insert({ message: announcementText.trim(), created_by: user.id, active: true })
+      .select().single()
+    if (data) { setAnnouncement(data); setEditingAnnouncement(false); setAnnouncementText('') }
+  }
+
+  const deleteAnnouncement = async () => {
+    if (!announcement) return
+    await supabase.from('announcements').update({ active: false }).eq('id', announcement.id)
+    setAnnouncement(null)
+  }
 
   const prevDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 1); setCurrentDate(d) }
   const nextDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 1); setCurrentDate(d) }
@@ -145,6 +169,36 @@ export default function Workouts({ user, profile }) {
 
   return (
     <div>
+      {/* Announcement banner */}
+      {announcement && (
+        <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '10px 14px', marginBottom: '1rem', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+          <span style={{ fontSize: '16px', flexShrink: 0 }}>📣</span>
+          <div style={{ flex: 1, fontSize: '14px', color: 'var(--bone)', lineHeight: 1.6 }}>{announcement.message}</div>
+          {isCoach && <button onClick={deleteAnnouncement} style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '16px', flexShrink: 0 }}>×</button>}
+        </div>
+      )}
+
+      {/* Coach announcement editor */}
+      {isCoach && (
+        <div style={{ marginBottom: '1rem' }}>
+          {editingAnnouncement
+            ? <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <textarea value={announcementText} onChange={e => setAnnouncementText(e.target.value)}
+                  placeholder="Write an announcement for all athletes..."
+                  style={{ flex: 1, minHeight: '60px', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '2px', padding: '8px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <button className="btn-sm" onClick={saveAnnouncement} disabled={!announcementText.trim()}>Post</button>
+                  <button className="btn-ghost" onClick={() => setEditingAnnouncement(false)} style={{ fontSize: '11px' }}>Cancel</button>
+                </div>
+              </div>
+            : <button className="btn-ghost" style={{ fontSize: '11px', width: '100%' }}
+                onClick={() => { setEditingAnnouncement(true); setAnnouncementText(announcement?.message || '') }}>
+                {announcement ? '✏️ Edit Announcement' : '📣 Post Announcement'}
+              </button>
+          }
+        </div>
+      )}
+
       <div className="date-nav">
         <button className="date-nav-btn" onClick={prevDay}>‹</button>
         <div style={{ textAlign: 'center' }}>
@@ -154,33 +208,12 @@ export default function Workouts({ user, profile }) {
         <button className="date-nav-btn" onClick={nextDay}>›</button>
       </div>
 
-      {/* Quick date jump */}
-      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '1rem', justifyContent: 'center' }}>
-        {[
-          { label: 'Today', days: 0 },
-          { label: '+1W', days: 7 },
-          { label: '+2W', days: 14 },
-          { label: '+3W', days: 21 },
-          { label: '+4W', days: 28 },
-          { label: '+6W', days: 42 },
-          { label: '+8W', days: 56 },
-          { label: '-1W', days: -7 },
-          { label: '-2W', days: -14 },
-        ].map(({ label, days }) => {
-          const d = new Date()
-          d.setDate(d.getDate() + days)
-          const isActive = toISO(currentDate) === toISO(d)
-          return (
-            <button key={label} onClick={() => setCurrentDate(new Date(d))}
-              className={isActive ? 'btn-sm' : 'btn-ghost'}
-              style={{ fontSize: '10px', padding: '3px 8px' }}>
-              {label}
-            </button>
-          )
-        })}
+      {/* Date picker + Today */}
+      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '1rem', alignItems: 'center' }}>
         <input type="date" value={toISO(currentDate)}
           onChange={e => { if (e.target.value) setCurrentDate(new Date(e.target.value + 'T12:00:00')) }}
-          style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '3px 6px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '11px', outline: 'none', cursor: 'pointer' }} />
+          style={{ background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '6px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '14px', outline: 'none', cursor: 'pointer' }} />
+        {!isToday && <button className="btn-ghost" style={{ fontSize: '12px' }} onClick={goToday}>Today</button>}
       </div>
 
       {loading && <div className="loading">Loading...</div>}
