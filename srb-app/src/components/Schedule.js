@@ -430,15 +430,7 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
       )}
       {isCoach && (
         <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Manually Add Athlete</div>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {allMembers
-              .filter(m => !signups.some(s => s.athlete_id === m.id))
-              .map(m => (
-                <button key={m.id} className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => onManualAdd(m.id)}>+ {m.name}</button>
-              ))
-            }
-          </div>
+          <ManualAddSearch allMembers={allMembers} signups={signups} onManualAdd={onManualAdd} />
         </div>
       )}
     </>
@@ -562,6 +554,52 @@ function ClassForm({ onSaved }) {
       <button className="btn-primary" onClick={save} disabled={loading || (isRecurring && recurDays.length === 0)}>
         {loading ? 'Saving...' : 'Save Class'}
       </button>
+    </div>
+  )
+}
+
+function ManualAddSearch({ allMembers, signups, onManualAdd }) {
+  const [search, setSearch] = React.useState('')
+  const [open, setOpen] = React.useState(false)
+
+  const available = allMembers.filter(m =>
+    !signups.some(s => s.athlete_id === m.id) &&
+    (!search.trim() || m.name?.toLowerCase().includes(search.toLowerCase()))
+  )
+
+  return (
+    <div>
+      <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Manually Add Athlete</div>
+      {!open
+        ? <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => setOpen(true)}>+ Add Athlete</button>
+        : <div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search athletes..."
+                autoFocus
+                style={{ flex: 1, background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '6px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '13px', outline: 'none' }}
+              />
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => { setOpen(false); setSearch('') }}>Cancel</button>
+            </div>
+            <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '2px' }}>
+              {available.length === 0 && (
+                <div style={{ padding: '10px 12px', fontSize: '13px', color: 'var(--charcoal-light)' }}>
+                  {search ? 'No athletes found' : 'All athletes already signed up'}
+                </div>
+              )}
+              {available.map(m => (
+                <div key={m.id}
+                  onClick={() => { onManualAdd(m.id); setOpen(false); setSearch('') }}
+                  style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '13px', color: 'var(--bone)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: 'var(--gold-dark)' }}>+</span> {m.name}
+                </div>
+              ))}
+            </div>
+          </div>
+      }
     </div>
   )
 }
