@@ -11,10 +11,13 @@ import CRM from './components/CRM'
 import WaiverForm from './components/WaiverForm'
 import Onboarding from './components/Onboarding'
 import Kiosk from './components/Kiosk'
+import SupertotalRegistration from './components/SupertotalRegistration'
+import Leads from './components/Leads'
 import Programs from './components/Programs'
 
 function KioskWrapper() {
   if (window.location.pathname === '/kiosk') return <Kiosk />
+  if (window.location.pathname === '/supertotal') return <SupertotalRegistration />
   return <AppMain />
 }
 
@@ -95,6 +98,7 @@ function AppMain() {
         {tab === 'programs' && <Programs user={session.user} profile={profile} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
+        {tab === 'leads' && isCoach && <Leads />}
         {tab === 'shop' && (
           <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '28px', color: 'var(--gold-light)', letterSpacing: '3px', marginBottom: '1rem' }}>SRB Gear</div>
