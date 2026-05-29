@@ -2,8 +2,6 @@ import React, { useState, useRef, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
 const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL']
-const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
-
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
 
 export default function SupertotalRegistration() {
@@ -328,16 +326,24 @@ export default function SupertotalRegistration() {
             </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
-              <stripe-pricing-table
-                pricing-table-id={formData.includeShirt ? process.env.REACT_APP_SUPERTOTAL_PRICING_TABLE_SHIRT : process.env.REACT_APP_SUPERTOTAL_PRICING_TABLE_ENTRY}
-                publishable-key={STRIPE_PK}
-                customer-email={formData.email}
-              />
+              <button
+                onClick={() => {
+                  const url = formData.includeShirt
+                    ? `https://buy.stripe.com/dRmeV56jNaVxa3sfiHgw000?prefilled_email=${encodeURIComponent(formData.email)}`
+                    : `https://buy.stripe.com/7sYdR17nR0gTa3sdazgw001?prefilled_email=${encodeURIComponent(formData.email)}`
+                  window.open(url, '_blank')
+                }}
+                style={{ display: 'block', width: '100%', background: 'linear-gradient(135deg, rgba(200,169,106,0.2), rgba(200,169,106,0.08))', border: '1px solid var(--gold)', borderRadius: '4px', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase', padding: '18px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: '12px' }}>
+                Pay {formData.includeShirt ? '$75' : '$45'} →
+              </button>
+              <p style={{ fontSize: '12px', color: 'var(--charcoal-light)', textAlign: 'center', margin: 0 }}>
+                Secure payment powered by Stripe — opens in a new tab
+              </p>
             </div>
 
             <div style={{ background: 'rgba(200,169,106,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '1rem', marginBottom: '1.5rem' }}>
               <p style={{ fontSize: '13px', color: 'var(--bone)', lineHeight: 1.7 }}>
-                After completing payment in the Stripe window above, tap the button below to confirm your registration and receive your confirmation email.
+                After completing payment, tap the button below to confirm your registration and receive your confirmation email.
               </p>
             </div>
 
