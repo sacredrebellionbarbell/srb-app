@@ -15,6 +15,8 @@ export default function SupertotalRegistration() {
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
   const [regId, setRegId] = useState(null)
+  const [paymentVerified, setPaymentVerified] = useState(false)
+  const [polling, setPolling] = useState(false)
 
   // Waiver state
   const [hasRead, setHasRead] = useState(false)
@@ -63,6 +65,25 @@ export default function SupertotalRegistration() {
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     setHasSigned(false)
   }
+
+  // Poll for payment confirmation after Stripe checkout
+  useEffect(() => {
+    if (step !== 'payment' || !regId || paymentVerified) return
+    setPolling(true)
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('event_registrations')
+        .select('payment_status')
+        .eq('id', regId)
+        .single()
+      if (data?.payment_status === 'paid') {
+        setPaymentVerified(true)
+        setPolling(false)
+        clearInterval(interval)
+      }
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [step, regId, paymentVerified])
 
   const upd = (f, v) => setFormData(d => ({ ...d, [f]: v }))
 
@@ -114,19 +135,7 @@ export default function SupertotalRegistration() {
     setStep('payment')
   }
 
-  const confirmPayment = async () => {
-    setLoading(true)
-    // Send confirmation email
-    await fetch('/api/event-confirm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ registrationId: regId, email: formData.email, firstName: formData.firstName, includeShirt: formData.includeShirt, shirtSize: formData.shirtSize })
-    })
-    // Update payment status
-    await supabase.from('event_registrations').update({ payment_status: 'paid' }).eq('id', regId)
-    setLoading(false)
-    setStep('done')
-  }
+  const confirmPayment = () => setStep('done')
 
   // Progress bar steps
   const steps = ['info', 'waiver', 'payment']
@@ -341,14 +350,25 @@ export default function SupertotalRegistration() {
               </p>
             </div>
 
-            <div style={{ background: 'rgba(200,169,106,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '1rem', marginBottom: '1.5rem' }}>
-              <p style={{ fontSize: '13px', color: 'var(--bone)', lineHeight: 1.7 }}>
-                After completing payment, tap the button below to confirm your registration and receive your confirmation email.
-              </p>
-            </div>
+            {polling && !paymentVerified && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '1rem', background: 'rgba(200,169,106,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '4px', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '18px' }}>⏳</span>
+                <div>
+                  <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px' }}>Waiting for payment...</div>
+                  <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>Complete payment above, this will update automatically.</div>
+                </div>
+              </div>
+            )}
 
-            <button className="btn-primary" onClick={confirmPayment} disabled={loading}>
-              {loading ? 'Confirming...' : "I've Completed Payment — Confirm Registration →"}
+            {paymentVerified && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '1rem', background: 'rgba(107,115,85,0.15)', border: '1px solid var(--moss)', borderRadius: '4px', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '18px' }}>✓</span>
+                <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--moss-light)', fontSize: '13px' }}>Payment confirmed!</div>
+              </div>
+            )}
+
+            <button className="btn-primary" onClick={confirmPayment} disabled={!paymentVerified}>
+              {paymentVerified ? 'Complete Registration →' : 'Waiting for Payment...'}
             </button>
             <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '8px', textAlign: 'center' }}>
               Having trouble? Email sarah@sacredrebellion.fit
