@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
   { id: 'crm', label: 'Members', icon: '👥', coachOnly: true },
+  { id: 'leads', label: 'Leads', icon: '🎯', coachOnly: true },
 ]
 
 export default function Nav({ user, profile, tab, setTab, onLogout }) {
