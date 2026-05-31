@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import usePushNotifications from '../hooks/usePushNotifications'
 import AthletePanel from './AthletePanel'
+import { notifyCoach } from '../utils/notifyCoach'
 
 function toISO(d) { return d.toISOString().split('T')[0] }
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
@@ -127,9 +128,26 @@ export default function Schedule({ user, profile }) {
   const signup = async (classId) => {
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
+
     const { error } = await supabase.from('class_signups').insert({ class_id: classId, athlete_id: user.id })
-    if (error) showToast('Already signed up')
-    else { showToast('Signed up!'); fetchClasses() }
+
+    if (error) {
+      showToast('Already signed up')
+    } else {
+      const cls = oneTimeClasses.find(c => c.id === classId)
+      const className = cls?.title || 'a class'
+      const classTime = cls?.start_time
+        ? new Date(cls.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : ''
+
+      await notifyCoach(
+        'New Class Signup',
+        `${profile?.name || 'An athlete'} signed up for ${className}${classTime ? ` at ${classTime}` : ''}.`
+      )
+
+      showToast('Signed up!')
+      fetchClasses()
+    }
   }
 
   const unsignup = async (classId) => {
@@ -141,9 +159,24 @@ export default function Schedule({ user, profile }) {
   const signupInstance = async (instanceId) => {
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
+
     const { error } = await supabase.from('instance_signups').insert({ instance_id: instanceId, athlete_id: user.id })
-    if (error) showToast('Already signed up')
-    else { showToast('Signed up!'); fetchClasses() }
+
+    if (error) {
+      showToast('Already signed up')
+    } else {
+      const cls = recurringClasses.find(c => c.instance?.id === instanceId)
+      const className = cls?.title || 'a recurring class'
+      const classTime = cls?.recurrence_time || ''
+
+      await notifyCoach(
+        'New Class Signup',
+        `${profile?.name || 'An athlete'} signed up for ${className}${classTime ? ` at ${classTime}` : ''}.`
+      )
+
+      showToast('Signed up!')
+      fetchClasses()
+    }
   }
 
   const unsignupInstance = async (instanceId) => {
