@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import webpush from 'web-push'
 
 const EVENT_PRICE_IDS = [
   'price_1TbLub1vlP8rpquA34L6N80D', // Entry only
@@ -6,6 +7,12 @@ const EVENT_PRICE_IDS = [
 ]
 
 export const config = { api: { bodyParser: false } }
+
+webpush.setVapidDetails(
+  process.env.VAPID_EMAIL,
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+)
 
 async function getRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -16,6 +23,52 @@ async function getRawBody(req) {
   })
 }
 
+async function sendCoachPushNotification(supabase, title, body) {
+  try {
+    const { data: coaches } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'coach')
+
+    if (!coaches?.length) return
+
+    const { data: subs, error } = await supabase
+      .from('push_subscriptions')
+      .select('subscription, user_id')
+      .in('user_id', coaches.map(c => c.id))
+
+    if (error) {
+      console.error('Push subscription lookup error:', error.message)
+      return
+    }
+
+    if (!subs?.length) return
+
+    const payload = JSON.stringify({
+      title,
+      body,
+      icon: '/logo.jpg',
+      badge: '/logo.jpg',
+      tag: 'srb-supertotal-payment',
+      renotify: true
+    })
+
+    const results = await Promise.allSettled(
+      subs.map(sub => webpush.sendNotification(sub.subscription, payload))
+    )
+
+    const expired = results
+      .map((r, i) => r.status === 'rejected' && r.reason?.statusCode === 410 ? subs[i].user_id : null)
+      .filter(Boolean)
+
+    if (expired.length) {
+      await supabase.from('push_subscriptions').delete().in('user_id', expired)
+    }
+  } catch (err) {
+    console.error('Coach push notification error:', err)
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -23,6 +76,7 @@ export default async function handler(req, res) {
   const rawBody = await getRawBody(req)
 
   let event
+
   try {
     const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
     event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_EVENT_WEBHOOK_SECRET)
@@ -44,10 +98,13 @@ export default async function handler(req, res) {
     if (!session.line_items) {
       try {
         const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+
         const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
           expand: ['line_items']
         })
+
         const expandedPriceId = fullSession.line_items?.data?.[0]?.price?.id
+
         if (!EVENT_PRICE_IDS.includes(expandedPriceId)) {
           return res.status(200).json({ message: 'Not an event payment, ignored' })
         }
@@ -69,7 +126,7 @@ export default async function handler(req, res) {
   // Update most recent pending registration for this email
   const { data: reg } = await supabase
     .from('event_registrations')
-    .select('id, first_name, include_shirt, shirt_size')
+    .select('id, first_name, last_name, include_shirt, shirt_size')
     .eq('email', email.toLowerCase())
     .eq('payment_status', 'pending')
     .order('created_at', { ascending: false })
@@ -82,6 +139,12 @@ export default async function handler(req, res) {
     payment_status: 'paid',
     stripe_session_id: session.id
   }).eq('id', reg.id)
+
+  await sendCoachPushNotification(
+    supabase,
+    'Supertotal Payment Confirmed',
+    `${reg.first_name} ${reg.last_name || ''} completed Supertotal payment.`.trim()
+  )
 
   // Send confirmation email
   await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://sacredrebellion.fit'}/api/event-confirm`, {
