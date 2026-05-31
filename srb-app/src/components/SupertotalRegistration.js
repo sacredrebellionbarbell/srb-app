@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { notifyCoach } from '../utils/notifyCoach'
 
 const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL']
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
@@ -131,6 +132,12 @@ export default function SupertotalRegistration() {
 
     if (error) { setErr('Error saving registration: ' + error.message); setLoading(false); return }
     setRegId(data.id)
+
+    await notifyCoach(
+      'New Supertotal Registration',
+      `${formData.firstName.trim()} ${formData.lastName.trim()} registered for the Supertotal. Payment pending.`
+    )
+
     setLoading(false)
     setStep('payment')
   }
