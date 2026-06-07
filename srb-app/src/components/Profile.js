@@ -53,6 +53,58 @@ function calcStreaks(attendance) {
   return { current, best }
 }
 
+function MovementHistoryModal({ movement, results, onClose }) {
+  const rows = results
+    .filter(r => r.movement === movement)
+    .sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
+
+  const best = rows
+    .map(r => ({ ...r, weight: xWeight(r.score) || 0 }))
+    .sort((a, b) => b.weight - a.weight)[0]
+
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal" style={{ maxWidth: '520px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', letterSpacing: '3px', textTransform: 'uppercase', fontSize: '18px' }}>{movement}</div>
+            <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '4px' }}>{rows.length} logged {rows.length === 1 ? 'set' : 'sets'}</div>
+          </div>
+          <button className="btn-ghost" onClick={onClose}>Close</button>
+        </div>
+
+        {best && (
+          <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '10px 12px', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '11px', letterSpacing: '2px', color: 'var(--charcoal-light)', textTransform: 'uppercase', marginBottom: '4px' }}>Heaviest Logged</div>
+            <div style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif' }}>{best.score}</div>
+            <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '4px' }}>{best.date}</div>
+          </div>
+        )}
+
+        {rows.length === 0 ? (
+          <p className="no-data">No history for this movement yet.</p>
+        ) : (
+          rows.map((r, i) => (
+            <div key={i} className="hist-row">
+              <div className="hist-title">{r.score}</div>
+              <div className="hist-meta">
+                <span className={`track-badge ${TC[r.track] || 'track-open'}`} style={{ fontSize: '9px', padding: '2px 7px' }}>{r.track}</span>
+                <span className="hist-date">{r.date}</span>
+                {r.reps && <span className="hist-note">{r.reps} reps</span>}
+                {r.load && <span className="hist-note">@ {r.load}</span>}
+                {r.setNumber && <span className="hist-note">Set {r.setNumber}</span>}
+              </div>
+              {r.workoutTitle && r.workoutTitle !== r.movement && (
+                <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '4px' }}>{r.workoutTitle}</div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Profile({ user, profile, onProfileUpdate }) {
   const [results, setResults] = useState([])
   const [prs, setPrs] = useState([])
@@ -65,6 +117,7 @@ export default function Profile({ user, profile, onProfileUpdate }) {
   const [phone, setPhone] = useState(profile?.phone || '')
   const [editPhone, setEditPhone] = useState(false)
   const [editRack, setEditRack] = useState(false)
+  const [selectedMovement, setSelectedMovement] = useState(null)
   const [rackSettings, setRackSettings] = useState({
     rack_squat_jcups: profile?.rack_squat_jcups || '',
     rack_squat_safeties: profile?.rack_squat_safeties || '',
@@ -328,22 +381,10 @@ export default function Profile({ user, profile, onProfileUpdate }) {
         {!editRack ? (
           <div>
             <div className="attendance-grid" style={{ marginBottom: '1rem' }}>
-              <div className="att-stat">
-                <div className="att-val">{profile?.rack_squat_jcups || '—'}</div>
-                <div className="att-label">Squat J-Cups</div>
-              </div>
-              <div className="att-stat">
-                <div className="att-val">{profile?.rack_squat_safeties || '—'}</div>
-                <div className="att-label">Squat Safeties</div>
-              </div>
-              <div className="att-stat">
-                <div className="att-val">{profile?.rack_bench_jcups || '—'}</div>
-                <div className="att-label">Bench J-Cups</div>
-              </div>
-              <div className="att-stat">
-                <div className="att-val">{profile?.rack_bench_safeties || '—'}</div>
-                <div className="att-label">Bench Safeties</div>
-              </div>
+              <div className="att-stat"><div className="att-val">{profile?.rack_squat_jcups || '—'}</div><div className="att-label">Squat J-Cups</div></div>
+              <div className="att-stat"><div className="att-val">{profile?.rack_squat_safeties || '—'}</div><div className="att-label">Squat Safeties</div></div>
+              <div className="att-stat"><div className="att-val">{profile?.rack_bench_jcups || '—'}</div><div className="att-label">Bench J-Cups</div></div>
+              <div className="att-stat"><div className="att-val">{profile?.rack_bench_safeties || '—'}</div><div className="att-label">Bench Safeties</div></div>
             </div>
 
             {profile?.rack_notes && (
@@ -372,25 +413,13 @@ export default function Profile({ user, profile, onProfileUpdate }) {
         ) : (
           <div>
             <div className="two-col">
-              <div className="field">
-                <label>Squat J-Cups</label>
-                <input value={rackSettings.rack_squat_jcups} onChange={e => setRackSettings(s => ({ ...s, rack_squat_jcups: e.target.value }))} placeholder="e.g. 17" />
-              </div>
-              <div className="field">
-                <label>Squat Safeties</label>
-                <input value={rackSettings.rack_squat_safeties} onChange={e => setRackSettings(s => ({ ...s, rack_squat_safeties: e.target.value }))} placeholder="e.g. 11" />
-              </div>
+              <div className="field"><label>Squat J-Cups</label><input value={rackSettings.rack_squat_jcups} onChange={e => setRackSettings(s => ({ ...s, rack_squat_jcups: e.target.value }))} placeholder="e.g. 17" /></div>
+              <div className="field"><label>Squat Safeties</label><input value={rackSettings.rack_squat_safeties} onChange={e => setRackSettings(s => ({ ...s, rack_squat_safeties: e.target.value }))} placeholder="e.g. 11" /></div>
             </div>
 
             <div className="two-col">
-              <div className="field">
-                <label>Bench J-Cups</label>
-                <input value={rackSettings.rack_bench_jcups} onChange={e => setRackSettings(s => ({ ...s, rack_bench_jcups: e.target.value }))} placeholder="e.g. 9" />
-              </div>
-              <div className="field">
-                <label>Bench Safeties</label>
-                <input value={rackSettings.rack_bench_safeties} onChange={e => setRackSettings(s => ({ ...s, rack_bench_safeties: e.target.value }))} placeholder="e.g. 6" />
-              </div>
+              <div className="field"><label>Bench J-Cups</label><input value={rackSettings.rack_bench_jcups} onChange={e => setRackSettings(s => ({ ...s, rack_bench_jcups: e.target.value }))} placeholder="e.g. 9" /></div>
+              <div className="field"><label>Bench Safeties</label><input value={rackSettings.rack_bench_safeties} onChange={e => setRackSettings(s => ({ ...s, rack_bench_safeties: e.target.value }))} placeholder="e.g. 6" /></div>
             </div>
 
             <div className="field">
@@ -432,11 +461,17 @@ export default function Profile({ user, profile, onProfileUpdate }) {
 
       <div className="profile-grid">
         <div className="pc">
-          <div className="pc-title">Estimated 1RMs</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+            <div className="pc-title" style={{ marginBottom: 0 }}>Estimated 1RMs</div>
+            <button className="btn-ghost" style={{ fontSize: '12px' }} onClick={() => setShowAdHoc(true)}>
+              + Log a Movement
+            </button>
+          </div>
+
           {prs.length === 0
             ? <p className="no-data">Log weighted sets to see estimates.</p>
             : prs.map(([name, d]) => (
-              <div key={name} className="pr-row">
+              <div key={name} className="pr-row" style={{ cursor: 'pointer' }} onClick={() => setSelectedMovement(name)}>
                 <span className="pr-mv">{name}</span>
                 <div style={{ textAlign: 'right' }}>
                   <div className="pr-val">~{d.est} lbs</div>
@@ -453,7 +488,7 @@ export default function Profile({ user, profile, onProfileUpdate }) {
           {results.length === 0
             ? <p className="no-data">No results logged yet.</p>
             : results.slice(0, 30).map((r, i) => (
-              <div key={i} className="hist-row">
+              <div key={i} className="hist-row" style={{ cursor: 'pointer' }} onClick={() => setSelectedMovement(r.movement)}>
                 <div className="hist-title">{r.movement || r.workoutTitle}</div>
                 <div className="hist-meta">
                   <span className={`track-badge ${TC[r.track] || 'track-open'}`} style={{ fontSize: '9px', padding: '2px 7px' }}>{r.track}</span>
@@ -473,23 +508,25 @@ export default function Profile({ user, profile, onProfileUpdate }) {
         </div>
       </div>
 
+      {showAdHoc && (
+        <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') setShowAdHoc(false) }}>
+          <div className="modal">
+            <AdHocLog user={user} onClose={() => { setShowAdHoc(false); fetchResults() }} defaultDate={new Date().toISOString().split('T')[0]} />
+          </div>
+        </div>
+      )}
+
+      {selectedMovement && (
+        <MovementHistoryModal
+          movement={selectedMovement}
+          results={results}
+          onClose={() => setSelectedMovement(null)}
+        />
+      )}
+
       <div className="panel" style={{ marginTop: '1.5rem' }}>
         <div className="panel-title">Membership</div>
         <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem' }}>Manage your Sacred Rebellion membership below.</p>
-
-        <div style={{ marginBottom: '1.5rem' }}>
-          <button className="btn-ghost" style={{ fontSize: '13px', width: '100%' }} onClick={() => setShowAdHoc(true)}>
-            + Log a Movement
-          </button>
-        </div>
-
-        {showAdHoc && (
-          <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') setShowAdHoc(false) }}>
-            <div className="modal">
-              <AdHocLog user={user} onClose={() => setShowAdHoc(false)} defaultDate={new Date().toISOString().split('T')[0]} />
-            </div>
-          </div>
-        )}
 
         <div style={{ marginBottom: '2rem' }}>
           <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '3px', color: 'var(--gold)', textTransform: 'uppercase', marginBottom: '1rem', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>Documents</div>
