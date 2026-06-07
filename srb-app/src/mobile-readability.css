@@ -1,0 +1,97 @@
+/* SRB mobile readability overrides.
+   Loaded after index.css so it gently increases legibility without rewriting the whole stylesheet. */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+button,
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 17px;
+  }
+
+  .app,
+  .panel,
+  .workout-card,
+  .class-card,
+  .field input,
+  .field select,
+  .field textarea,
+  .auth-card,
+  .modal,
+  .drawer,
+  .nav-drawer {
+    font-size: 16px;
+  }
+
+  .workout-title,
+  .class-title,
+  .section-title,
+  .panel-title {
+    font-size: 1.08rem;
+    line-height: 1.35;
+  }
+
+  .workout-notes,
+  .section-block-notes,
+  .movement-notes-text,
+  .class-meta,
+  .class-spots,
+  .lb-row,
+  .set-log-row,
+  .field label {
+    font-size: 0.98rem;
+    line-height: 1.5;
+  }
+
+  .btn-primary,
+  .btn-sm,
+  .btn-ghost,
+  .btn-moss,
+  .reaction-btn {
+    min-height: 40px;
+    font-size: 0.95rem !important;
+  }
+
+  .set-log-row {
+    gap: 8px;
+    align-items: center;
+  }
+
+  .lb-score,
+  .set-load,
+  .set-reps,
+  .set-rpe {
+    font-size: 0.98rem;
+  }
+}
+
+@media (max-width: 420px) {
+  body {
+    font-size: 17px;
+  }
+
+  .workout-title,
+  .class-title,
+  .section-title,
+  .panel-title {
+    font-size: 1.12rem;
+  }
+
+  .date-nav-label {
+    font-size: 1rem;
+  }
+}
