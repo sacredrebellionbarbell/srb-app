@@ -149,11 +149,10 @@ export default function Workouts({ user, profile }) {
   const isToday = toISO(currentDate) === toISO(new Date())
   const isFuture = toISO(currentDate) > toISO(new Date())
 
-  // Auto-create a results row so reactions work for the newer set_logs / section_logs system.
-  // This row is only used as a reaction anchor now. The leaderboard displays actual set/section logs.
+  // Auto-create a results row so reactions work for new set_logs system
   const ensureResultRow = async (workoutId) => {
     await supabase.from('results').upsert(
-      { workout_id: workoutId, athlete_id: user.id, score: 'Completed' },
+      { workout_id: workoutId, athlete_id: user.id, score: 'logged' },
       { onConflict: 'workout_id,athlete_id' }
     )
   }
@@ -313,12 +312,6 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
   const legacyResults = workout.results || []
 
-  const sectionHasSetLogs = (section) => {
-    return (section.movements || []).some(mov =>
-      (mov.sets || []).some(st => (st.set_logs || []).some(sl => sl.value))
-    )
-  }
-
   return (
     <div className="workout-card">
       <div className="workout-header" onClick={onToggle}>
@@ -346,24 +339,15 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
             {workout.notes && <p className="workout-notes">{workout.notes}</p>}
             {sections.map(sec => {
               const scoreType = sec.score_type || 'No Score'
-              const leaderboardScoreType = scoreType !== 'No Score'
-                ? scoreType
-                : sectionHasSetLogs(sec)
-                  ? 'Heaviest Set'
-                  : 'No Score'
               const mySecLog = (sec.section_logs || []).find(sl => sl.athlete_id === user.id)
-              const sectionLeaderboard = leaderboardScoreType !== 'No Score'
-                ? buildSectionLeaderboard(sec, leaderboardScoreType)
-                : []
+              const sectionLeaderboard = scoreType !== 'No Score' ? buildSectionLeaderboard(sec, scoreType) : []
 
               return (
                 <div key={sec.id} className="section-block">
                   <div className="section-block-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>{sec.type}</span>
-                    {leaderboardScoreType !== 'No Score' && (
-                      <span style={{ fontSize: '10px', letterSpacing: '1px', color: 'var(--charcoal-light)', textTransform: 'uppercase', fontFamily: 'Lato, sans-serif' }}>
-                        {scoreType !== 'No Score' ? scoreType : 'Logged Results'}
-                      </span>
+                    {scoreType !== 'No Score' && (
+                      <span style={{ fontSize: '10px', letterSpacing: '1px', color: 'var(--charcoal-light)', textTransform: 'uppercase', fontFamily: 'Lato, sans-serif' }}>{scoreType}</span>
                     )}
                   </div>
                   {sec.notes && <p className="section-block-notes">{sec.notes}</p>}
@@ -425,10 +409,10 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                   />
 
                   {/* Per-section leaderboard */}
-                  {leaderboardScoreType !== 'No Score' && sectionLeaderboard.length > 0 && (
+                  {scoreType !== 'No Score' && sectionLeaderboard.length > 0 && (
                     <SectionLeaderboard
                       entries={sectionLeaderboard}
-                      scoreType={leaderboardScoreType}
+                      scoreType={scoreType}
                       userId={user.id}
                       reactions={RX}
                       legacyResults={legacyResults}
@@ -443,10 +427,10 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
             })}
 
             {/* Legacy results from old system */}
-            {legacyResults.filter(r => r.score && !['logged', 'completed'].includes(String(r.score).toLowerCase())).length > 0 && sections.every(s => !s.score_type || s.score_type === 'No Score') && (
+            {legacyResults.length > 0 && sections.every(s => !s.score_type || s.score_type === 'No Score') && (
               <div style={{ marginTop: '1rem' }}>
                 <div className="lb-title">Previous Results</div>
-                {legacyResults.filter(r => r.score && !['logged', 'completed'].includes(String(r.score).toLowerCase())).sort((a, b) => {
+                {[...legacyResults].sort((a, b) => {
                   const av = parseFloat(a.score), bv = parseFloat(b.score)
                   if (!isNaN(av) && !isNaN(bv)) return bv - av
                   return 0
