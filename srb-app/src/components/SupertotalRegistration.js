@@ -110,7 +110,6 @@ export default function SupertotalRegistration() {
     setLoading(true)
     const signatureImage = canvasRef.current.toDataURL('image/png')
 
-    // Save registration to Supabase
     const { data, error } = await supabase.from('event_registrations').insert({
       first_name: formData.firstName.trim(),
       last_name: formData.lastName.trim(),
@@ -124,6 +123,7 @@ export default function SupertotalRegistration() {
       deadlift_opener_lbs: parseFloat(formData.deadliftOpener),
       include_shirt: formData.includeShirt,
       shirt_size: formData.includeShirt ? formData.shirtSize : null,
+      shirt_ordered: false,
       waiver_signed: true,
       waiver_signature: signatureImage,
       waiver_signed_at: new Date().toISOString(),
@@ -131,6 +131,7 @@ export default function SupertotalRegistration() {
     }).select().single()
 
     if (error) { setErr('Error saving registration: ' + error.message); setLoading(false); return }
+
     setRegId(data.id)
 
     await notifyCoach(
@@ -144,7 +145,18 @@ export default function SupertotalRegistration() {
 
   const confirmPayment = () => setStep('done')
 
-  // Progress bar steps
+  const openStripePayment = () => {
+    const baseUrl = formData.includeShirt
+      ? 'https://buy.stripe.com/dRmeV56jNaVxa3sfiHgw000'
+      : 'https://buy.stripe.com/7sYdR17nR0gTa3sdazgw001'
+
+    const params = new URLSearchParams()
+    params.set('prefilled_email', formData.email)
+    if (regId) params.set('client_reference_id', String(regId))
+
+    window.open(`${baseUrl}?${params.toString()}`, '_blank')
+  }
+
   const steps = ['info', 'waiver', 'payment']
   const stepIdx = steps.indexOf(step)
 
@@ -174,7 +186,6 @@ export default function SupertotalRegistration() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#1a1a18', padding: '0', position: 'relative' }}>
-      {/* Hero header */}
       <div style={{ background: 'linear-gradient(180deg, rgba(200,169,106,0.08) 0%, transparent 100%)', borderBottom: '1px solid var(--border)', padding: '2rem 1.5rem 1.5rem', textAlign: 'center' }}>
         <img src={logo} alt="SRB" style={{ width: '60px', height: '60px', borderRadius: '6px', objectFit: 'cover', marginBottom: '1rem', border: '1px solid rgba(200,169,106,0.3)' }} />
         <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', letterSpacing: '4px', color: 'var(--rose)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Sacred Rebellion Barbell Presents</div>
@@ -187,7 +198,6 @@ export default function SupertotalRegistration() {
         </div>
       </div>
 
-      {/* Progress bar */}
       {step !== 'done' && (
         <div style={{ display: 'flex', gap: '4px', padding: '1rem 1.5rem 0' }}>
           {steps.map((s, i) => (
@@ -197,8 +207,6 @@ export default function SupertotalRegistration() {
       )}
 
       <div style={{ maxWidth: '640px', margin: '0 auto', padding: '1.5rem' }}>
-
-        {/* Step 1 — Info */}
         {step === 'info' && (
           <div>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '16px', color: 'var(--gold-light)', letterSpacing: '2px', marginBottom: '1.5rem' }}>Athlete Information</div>
@@ -223,22 +231,11 @@ export default function SupertotalRegistration() {
             </div>
             <div className="field"><label>Deadlift</label><input type="number" value={formData.deadliftOpener} onChange={e => upd('deadliftOpener', e.target.value)} placeholder="lbs" /></div>
 
-            {/* Shirt option */}
             <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
               <div style={{ fontFamily: 'Cinzel, serif', fontSize: '14px', color: 'var(--gold)', letterSpacing: '2px', marginBottom: '1rem' }}>Event Entry</div>
               <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem' }}>
-                <button
-                  onClick={() => upd('includeShirt', false)}
-                  className={!formData.includeShirt ? 'btn-sm' : 'btn-ghost'}
-                  style={{ flex: 1 }}>
-                  Entry Only — $45
-                </button>
-                <button
-                  onClick={() => upd('includeShirt', true)}
-                  className={formData.includeShirt ? 'btn-sm' : 'btn-ghost'}
-                  style={{ flex: 1 }}>
-                  Entry + Shirt — $75
-                </button>
+                <button onClick={() => upd('includeShirt', false)} className={!formData.includeShirt ? 'btn-sm' : 'btn-ghost'} style={{ flex: 1 }}>Entry Only — $45</button>
+                <button onClick={() => upd('includeShirt', true)} className={formData.includeShirt ? 'btn-sm' : 'btn-ghost'} style={{ flex: 1 }}>Entry + Shirt — $75</button>
               </div>
               {formData.includeShirt && (
                 <div className="field">
@@ -254,13 +251,10 @@ export default function SupertotalRegistration() {
               )}
             </div>
 
-            <button className="btn-primary" onClick={submitInfo} style={{ marginTop: '1.5rem' }}>
-              Continue to Waiver →
-            </button>
+            <button className="btn-primary" onClick={submitInfo} style={{ marginTop: '1.5rem' }}>Continue to Waiver →</button>
           </div>
         )}
 
-        {/* Step 2 — Waiver */}
         {step === 'waiver' && (
           <div>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '16px', color: 'var(--gold-light)', letterSpacing: '2px', marginBottom: '1.5rem' }}>Liability Waiver</div>
@@ -286,42 +280,28 @@ export default function SupertotalRegistration() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '1.5rem', padding: '1rem', background: 'rgba(245,240,232,0.03)', border: '1px solid var(--border)', borderRadius: '4px' }}>
-              <input type="checkbox" id="hasReadEvent" checked={hasRead} onChange={e => setHasRead(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--gold)' }} />
-              <label htmlFor="hasReadEvent" style={{ fontSize: '14px', color: 'var(--bone)', cursor: 'pointer', lineHeight: 1.5 }}>
-                I have read and understand this agreement in its entirety.
-              </label>
+              <input type="checkbox" id="hasReadEvent" checked={hasRead} onChange={e => setHasRead(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--gold)' }} />
+              <label htmlFor="hasReadEvent" style={{ fontSize: '14px', color: 'var(--bone)', cursor: 'pointer', lineHeight: 1.5 }}>I have read and understand this agreement in its entirety.</label>
             </div>
 
-            <div className="field">
-              <label>Full Legal Name (Print)</label>
-              <input type="text" value={printedName} onChange={e => setPrintedName(e.target.value)} placeholder="First and Last Name" />
-            </div>
+            <div className="field"><label>Full Legal Name (Print)</label><input type="text" value={printedName} onChange={e => setPrintedName(e.target.value)} placeholder="First and Last Name" /></div>
 
             <div className="field">
               <label>Signature — Draw your signature below</label>
               <div style={{ position: 'relative', border: '1px solid var(--gold-dark)', borderRadius: '2px', background: 'rgba(245,240,232,0.04)', touchAction: 'none' }}>
-                <canvas ref={canvasRef} width={560} height={140}
-                  style={{ width: '100%', height: '140px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
-                  onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-                  onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
-                {!hasSigned && (
-                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', color: 'var(--charcoal-light)', fontSize: '13px', pointerEvents: 'none' }}>Sign here</div>
-                )}
+                <canvas ref={canvasRef} width={560} height={140} style={{ width: '100%', height: '140px', display: 'block', cursor: 'crosshair', touchAction: 'none' }} onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw} onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+                {!hasSigned && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', color: 'var(--charcoal-light)', fontSize: '13px', pointerEvents: 'none' }}>Sign here</div>}
               </div>
               {hasSigned && <button onClick={clearSig} className="btn-ghost" style={{ fontSize: '11px', marginTop: '6px' }}>Clear Signature</button>}
             </div>
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '1rem' }}>
-              <button className="btn-primary" onClick={submitWaiver} disabled={loading}>
-                {loading ? 'Saving...' : 'Continue to Payment →'}
-              </button>
+              <button className="btn-primary" onClick={submitWaiver} disabled={loading}>{loading ? 'Saving...' : 'Continue to Payment →'}</button>
               <button className="btn-ghost" onClick={() => setStep('info')} style={{ flex: 'none', width: 'auto', padding: '10px 20px' }}>← Back</button>
             </div>
           </div>
         )}
 
-        {/* Step 3 — Payment */}
         {step === 'payment' && (
           <div>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '16px', color: 'var(--gold-light)', letterSpacing: '2px', marginBottom: '1.5rem' }}>Complete Payment</div>
@@ -332,9 +312,7 @@ export default function SupertotalRegistration() {
                 <span>{formData.includeShirt ? 'Entry + Event Shirt (Pre-order)' : 'Entry Only'}</span>
                 <span style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)' }}>{formData.includeShirt ? '$75' : '$45'}</span>
               </div>
-              {formData.includeShirt && (
-                <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>Shirt size: {formData.shirtSize}</div>
-              )}
+              {formData.includeShirt && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>Shirt size: {formData.shirtSize}</div>}
               <div style={{ borderTop: '1px solid var(--border)', marginTop: '10px', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '16px' }}>
                 <span>Total</span>
                 <span>{formData.includeShirt ? '$75' : '$45'}</span>
@@ -342,19 +320,10 @@ export default function SupertotalRegistration() {
             </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
-              <button
-                onClick={() => {
-                  const url = formData.includeShirt
-                    ? `https://buy.stripe.com/dRmeV56jNaVxa3sfiHgw000?prefilled_email=${encodeURIComponent(formData.email)}`
-                    : `https://buy.stripe.com/7sYdR17nR0gTa3sdazgw001?prefilled_email=${encodeURIComponent(formData.email)}`
-                  window.open(url, '_blank')
-                }}
-                style={{ display: 'block', width: '100%', background: 'linear-gradient(135deg, rgba(200,169,106,0.2), rgba(200,169,106,0.08))', border: '1px solid var(--gold)', borderRadius: '4px', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase', padding: '18px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: '12px' }}>
+              <button onClick={openStripePayment} style={{ display: 'block', width: '100%', background: 'linear-gradient(135deg, rgba(200,169,106,0.2), rgba(200,169,106,0.08))', border: '1px solid var(--gold)', borderRadius: '4px', color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '16px', letterSpacing: '3px', textTransform: 'uppercase', padding: '18px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: '12px' }}>
                 Pay {formData.includeShirt ? '$75' : '$45'} →
               </button>
-              <p style={{ fontSize: '12px', color: 'var(--charcoal-light)', textAlign: 'center', margin: 0 }}>
-                Secure payment powered by Stripe — opens in a new tab
-              </p>
+              <p style={{ fontSize: '12px', color: 'var(--charcoal-light)', textAlign: 'center', margin: 0 }}>Secure payment powered by Stripe — opens in a new tab</p>
             </div>
 
             {polling && !paymentVerified && (
@@ -374,12 +343,8 @@ export default function SupertotalRegistration() {
               </div>
             )}
 
-            <button className="btn-primary" onClick={confirmPayment} disabled={!paymentVerified}>
-              {paymentVerified ? 'Complete Registration →' : 'Waiting for Payment...'}
-            </button>
-            <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '8px', textAlign: 'center' }}>
-              Having trouble? Email sarah@sacredrebellion.fit
-            </div>
+            <button className="btn-primary" onClick={confirmPayment} disabled={!paymentVerified}>{paymentVerified ? 'Complete Registration →' : 'Waiting for Payment...'}</button>
+            <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '8px', textAlign: 'center' }}>Having trouble? Email sarah@sacredrebellion.fit</div>
           </div>
         )}
       </div>
