@@ -14,6 +14,7 @@ import Kiosk from './components/Kiosk'
 import SupertotalRegistration from './components/SupertotalRegistration'
 import Leads from './components/Leads'
 import Programs from './components/Programs'
+import AthleteMomentum from './components/AthleteMomentum'
 
 function KioskWrapper() {
   if (window.location.pathname === '/kiosk') return <Kiosk />
@@ -66,7 +67,6 @@ function AppMain() {
 
   if (!session) return <div className="app"><Auth /></div>
 
-  // Gate access behind onboarding for non-coaches
   const needsOnboarding = profile && profile.role !== 'coach' && (
     !profile.waiver_signed ||
     !profile.member_agreement_signed ||
@@ -92,6 +92,7 @@ function AppMain() {
     <div className="app">
       <Nav user={session.user} profile={profile} tab={tab} setTab={setTab} onLogout={handleLogout} />
       <main className="main">
+        <AthleteMomentum user={session.user} profile={profile} />
         {tab === 'workouts' && <Workouts user={session.user} profile={profile} />}
         {tab === 'schedule' && <Schedule user={session.user} profile={profile} />}
         {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => setTab('workouts')} />}
