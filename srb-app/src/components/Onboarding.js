@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import WaiverForm from './WaiverForm'
@@ -5,12 +6,13 @@ import MemberAgreement from './MemberAgreement'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
+const FOUNDING_STRIPE_TABLE_ID = process.env.REACT_APP_FOUNDING_PRICING_TABLE_ID
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 
 const STEPS = [
   { id: 'waiver', title: 'Liability Waiver', description: 'Read and sign the SRB liability waiver', icon: '📋' },
   { id: 'agreement', title: 'Member Agreement', description: 'Read and sign the member agreement', icon: '🤝' },
-  { id: 'subscription', title: 'Choose Membership', description: 'Select and set up your membership', icon: '💳' },
+  { id: 'subscription', title: 'Founding Membership Preregistration', description: 'Reserve your founding membership through Stripe', icon: '💳' },
   { id: 'profile', title: 'Complete Your Profile', description: 'Add your name and contact info', icon: '👤' },
   { id: 'tutorial', title: 'Get Oriented', description: 'A quick tour of your app', icon: '🗺️' },
 ]
@@ -24,7 +26,7 @@ const TUTORIAL_SLIDES = [
   {
     icon: '📅',
     title: 'Schedule',
-    body: 'Sign up for classes, view upcoming sessions, and check in for 24/7 open gym access. You need an active membership to sign up — class access is required for scheduled classes.'
+    body: 'Sign up for classes, view upcoming sessions, and check in for open gym access. You need an active membership to sign up.'
   },
   {
     icon: '📂',
@@ -39,7 +41,7 @@ const TUTORIAL_SLIDES = [
   {
     icon: '👤',
     title: 'Profile',
-    body: 'View your estimated 1RMs, attendance history, membership details, and documents. Your 1RMs are calculated automatically from logged strength work.'
+    body: 'View your estimated 1RMs, attendance history, rack settings, membership details, and documents.'
   },
   {
     icon: '💪',
@@ -54,14 +56,14 @@ export default function Onboarding({ user, profile, onComplete }) {
   const [profileName, setProfileName] = useState(profile?.name || '')
   const [profilePhone, setProfilePhone] = useState(profile?.phone || '')
   const [savingProfile, setSavingProfile] = useState(false)
+  const [savingFounding, setSavingFounding] = useState(false)
   const [currentProfile, setCurrentProfile] = useState(profile)
   const [checking, setChecking] = useState(false)
 
-  // Poll for membership assignment after Stripe checkout
   useEffect(() => {
     if (activeStep !== 'subscription') return
     const interval = setInterval(async () => {
-      const { data } = await supabase.from('profiles').select('membership_type, active_products').eq('id', user.id).single()
+      const { data } = await supabase.from('profiles').select('membership_type, active_products, founding_preregistration_completed, founding_preregistered_at').eq('id', user.id).single()
       if (data?.membership_type && data.membership_type !== 'None') {
         setCurrentProfile(prev => ({ ...prev, ...data }))
         setActiveStep(null)
@@ -92,12 +94,32 @@ export default function Onboarding({ user, profile, onComplete }) {
     setActiveStep(null)
   }
 
+  const markFoundingPreregistered = async () => {
+    setSavingFounding(true)
+
+    const updates = {
+      membership_type: 'Founding Preregistration',
+      founding_preregistration_completed: true,
+      founding_preregistered_at: new Date().toISOString()
+    }
+
+    const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+    if (!error) {
+      setCurrentProfile(prev => ({ ...prev, ...updates }))
+      setActiveStep(null)
+    }
+
+    setSavingFounding(false)
+  }
+
   const handleStepClick = (stepId) => {
     if (activeStep === stepId) { setActiveStep(null); return }
-    // Can only access steps in order
+
     const stepIndex = STEPS.findIndex(s => s.id === stepId)
     const allPriorComplete = STEPS.slice(0, stepIndex).every(s => getStepStatus(s.id) === 'complete')
     if (!allPriorComplete) return
+
     setActiveStep(stepId)
   }
 
@@ -116,7 +138,6 @@ export default function Onboarding({ user, profile, onComplete }) {
             </p>
           </div>
 
-          {/* Progress dots */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '2rem' }}>
             {TUTORIAL_SLIDES.map((_, i) => (
               <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', background: i === tutorialSlide ? 'var(--gold)' : 'var(--border)', transition: 'background 0.2s' }} />
@@ -127,6 +148,7 @@ export default function Onboarding({ user, profile, onComplete }) {
             ? <button className="btn-primary" onClick={() => setTutorialSlide(t => t + 1)}>Next →</button>
             : <button className="btn-primary" onClick={onComplete}>Enter Sacred Rebellion Barbell</button>
           }
+
           {tutorialSlide > 0 && (
             <button className="btn-ghost" onClick={() => setTutorialSlide(t => t - 1)} style={{ marginTop: '10px' }}>← Back</button>
           )}
@@ -138,23 +160,20 @@ export default function Onboarding({ user, profile, onComplete }) {
   return (
     <div className="app">
       <div style={{ padding: '2rem 1.5rem', maxWidth: '600px', margin: '0 auto' }}>
-
-        {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ fontFamily: 'Cinzel, serif', fontSize: '22px', color: 'var(--gold-light)', letterSpacing: '3px', marginBottom: '0.5rem' }}>
             Sacred Rebellion Barbell
           </div>
           <div style={{ fontSize: '12px', letterSpacing: '3px', color: 'var(--rose)', textTransform: 'uppercase', marginBottom: '1rem' }}>
-            Welcome
+            Founding Membership
           </div>
           <div style={{ width: '40px', height: '1px', background: 'var(--gold)', margin: '0 auto 1rem', opacity: 0.5 }} />
           <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.7 }}>
-            Before you get access to the app, complete the steps below. You can do them in any order, but all are required.
+            Claim your founding membership access below. You’ll create your account, sign the required documents, reserve your membership through Stripe, and complete your profile.
           </p>
         </div>
 
-        {/* Step list */}
-        {STEPS.map((step, idx) => {
+        {STEPS.map((step) => {
           const status = getStepStatus(step.id)
           const isActive = activeStep === step.id
           const stepIndex = STEPS.findIndex(s => s.id === step.id)
@@ -168,10 +187,13 @@ export default function Onboarding({ user, profile, onComplete }) {
                 style={{
                   background: status === 'complete' ? 'rgba(107,115,85,0.15)' : isActive ? 'rgba(200,169,106,0.08)' : 'rgba(245,240,232,0.03)',
                   border: `1px solid ${status === 'complete' ? 'var(--moss)' : isActive ? 'var(--gold-dark)' : 'var(--border)'}`,
-                  borderRadius: '4px', padding: '1rem 1.25rem',
+                  borderRadius: '4px',
+                  padding: '1rem 1.25rem',
                   cursor: isLocked ? 'default' : 'pointer',
                   opacity: isLocked ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', gap: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
                   transition: 'all 0.2s'
                 }}
               >
@@ -186,49 +208,79 @@ export default function Onboarding({ user, profile, onComplete }) {
                 {isLocked && <span style={{ color: 'var(--charcoal-light)', fontSize: '14px' }}>🔒</span>}
               </div>
 
-              {/* Step content */}
               {isActive && (
                 <div style={{ border: '1px solid var(--border)', borderTop: 'none', borderRadius: '0 0 4px 4px', padding: '1.5rem', background: 'rgba(245,240,232,0.02)' }}>
-
                   {step.id === 'waiver' && (
-                    <WaiverForm user={user} profile={currentProfile}
-                      onSigned={() => { setCurrentProfile(prev => ({ ...prev, waiver_signed: true })); setActiveStep(null) }} />
+                    <WaiverForm
+                      user={user}
+                      profile={currentProfile}
+                      onSigned={() => { setCurrentProfile(prev => ({ ...prev, waiver_signed: true })); setActiveStep(null) }}
+                    />
                   )}
 
                   {step.id === 'agreement' && (
-                    <MemberAgreement user={user} profile={currentProfile}
-                      onSigned={() => { setCurrentProfile(prev => ({ ...prev, member_agreement_signed: true })); setActiveStep(null) }} />
+                    <MemberAgreement
+                      user={user}
+                      profile={currentProfile}
+                      onSigned={() => { setCurrentProfile(prev => ({ ...prev, member_agreement_signed: true })); setActiveStep(null) }}
+                    />
                   )}
 
                   {step.id === 'subscription' && (
                     <div>
                       <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem', lineHeight: 1.7 }}>
-                        Choose your membership below. After completing checkout your membership will be activated automatically — this page will advance on its own.
+                        Reserve your founding membership below. If the Stripe table shows a $0 preregistration option, complete it there, then tap the confirmation button underneath.
                       </p>
+
                       {checking && (
                         <div style={{ fontSize: '13px', color: 'var(--gold-light)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span>⏳</span> Waiting for payment confirmation...
+                          <span>⏳</span> Checking membership status...
                         </div>
                       )}
-                      <div style={{ marginBottom: '1rem' }}>
-                        <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
+
+                      {FOUNDING_STRIPE_TABLE_ID ? (
+                        <div style={{ marginBottom: '1rem' }}>
+                          <stripe-pricing-table pricing-table-id={FOUNDING_STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ marginBottom: '1rem' }}>
+                            <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
+                          </div>
+                          {STRIPE_TABLE_ID_2 && (
+                            <div>
+                              <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID_2} publishable-key={STRIPE_PK} customer-email={user.email} />
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginTop: '1rem' }}>
+                        <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                          Finished Stripe Preregistration?
+                        </div>
+                        <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', lineHeight: 1.6, marginBottom: '12px' }}>
+                          After you complete the $0 Founding Membership preregistration in Stripe, tap below to unlock the rest of onboarding.
+                        </p>
+                        <button className="btn-primary" onClick={markFoundingPreregistered} disabled={savingFounding}>
+                          {savingFounding ? 'Saving...' : 'I Completed Founding Preregistration'}
+                        </button>
                       </div>
-                      {STRIPE_TABLE_ID_2 && (
-                        <div>
-                          <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID_2} publishable-key={STRIPE_PK} customer-email={user.email} />
-                        </div>
-                      )}
-                      <button className="btn-ghost" style={{ fontSize: '11px', marginTop: '1rem' }}
+
+                      <button
+                        className="btn-ghost"
+                        style={{ fontSize: '11px', marginTop: '1rem' }}
                         onClick={async () => {
                           setChecking(true)
-                          const { data } = await supabase.from('profiles').select('membership_type, active_products').eq('id', user.id).single()
+                          const { data } = await supabase.from('profiles').select('membership_type, active_products, founding_preregistration_completed, founding_preregistered_at').eq('id', user.id).single()
                           if (data?.membership_type && data.membership_type !== 'None') {
                             setCurrentProfile(prev => ({ ...prev, ...data }))
                             setActiveStep(null)
                           }
                           setChecking(false)
-                        }}>
-                        Already subscribed? Click to check →
+                        }}
+                      >
+                        Already completed? Click to check →
                       </button>
                     </div>
                   )}
@@ -243,20 +295,17 @@ export default function Onboarding({ user, profile, onComplete }) {
                         <label>Phone Number</label>
                         <input type="tel" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} placeholder="(555) 555-5555" />
                       </div>
-                      <button className="btn-primary" onClick={saveProfile}
-                        disabled={savingProfile || !profileName.trim() || !profilePhone.trim()}>
+                      <button className="btn-primary" onClick={saveProfile} disabled={savingProfile || !profileName.trim() || !profilePhone.trim()}>
                         {savingProfile ? 'Saving...' : 'Save Profile'}
                       </button>
                     </div>
                   )}
-
                 </div>
               )}
             </div>
           )
         })}
 
-        {/* Enter app button — shows when steps 1-4 complete */}
         {allComplete && (
           <div style={{ marginTop: '1.5rem' }}>
             <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
