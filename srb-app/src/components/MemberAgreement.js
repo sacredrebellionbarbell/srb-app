@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 
-const DOC_VERSION = 1
+const DOC_VERSION = 2
 
 const MEMBER_AGREEMENT_URL = 'https://docs.google.com/document/d/1b_6y_bXXhGuZyyP5yuqPw-HRlWiOISEewAWOlCdq5I8/edit?usp=sharing'
 
@@ -138,21 +138,31 @@ export default function MemberAgreement({ user, profile, onSigned, readOnly }) {
         <p style={{ marginBottom: '1rem' }}>Member agrees to pay all dues, fees, and equity contributions as set by the Board. Monthly dues are due on the first of each month. Failure to maintain current dues may result in suspension of membership privileges.</p>
 
         <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>3. Facility Use</p>
-        <p style={{ marginBottom: '1rem' }}>Member agrees to use the facility responsibly, maintain equipment in good condition, and report any damage or safety concerns. Member will not allow non-members access to the facility without explicit authorization from SRB.</p>
+        <p style={{ marginBottom: '1rem' }}>Member agrees to use the facility responsibly, maintain equipment in good condition, clean and return equipment after use, and report any damage, malfunction, safety concern, or unsafe condition immediately.</p>
+        <p style={{ marginBottom: '1rem' }}>Member understands that SRB may offer open gym, extended access, and/or unsupervised access. During any unsupervised use, Member is solely responsible for exercising within their abilities, using appropriate safety equipment, using spotters when needed, avoiding movements or loads they cannot perform safely, and contacting emergency services when necessary.</p>
+        <p style={{ marginBottom: '1rem' }}>Member may not coach, train, instruct, supervise, or provide paid or unpaid training services to any other person inside SRB without explicit written authorization from SRB.</p>
 
-        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>4. Key and Access Policy</p>
-        <p style={{ marginBottom: '1rem' }}>Co-op members with 24/7 key access are responsible for securing the facility upon departure. Key access is non-transferable. Loss or misuse of access credentials must be reported immediately. Member is financially responsible for any loss or damage resulting from misuse of their access.</p>
+        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>4. Facility Access, Guests, and Security</p>
+        <p style={{ marginBottom: '1rem' }}>Access credentials, door codes, keys, mobile credentials, and any other method of entry are assigned to the individual Member only and are non-transferable. Member may not share, loan, post, screenshot, forward, or otherwise provide access credentials to any other person.</p>
+        <p style={{ marginBottom: '1rem' }}>Member may not allow non-members, guests, former members, friends, family members, visitors, or any unauthorized individual to enter the facility using Member's access credentials. Member may not intentionally or negligently allow another person to follow them into the facility. This includes holding the door open for an unauthorized person, propping the door open, or allowing another person to enter before or after Member without separate authorization.</p>
+        <p style={{ marginBottom: '1rem' }}>Member is responsible for ensuring the facility remains secure when entering and leaving. Member must confirm that doors are closed and locked upon departure, must not bypass or disable access controls, and must report lost credentials, suspicious activity, unauthorized access, or security concerns immediately.</p>
+        <p style={{ marginBottom: '1rem' }}>Member agrees to respect SRB's posted access hours and closure window, including the 11:00 PM to 4:00 AM closure period or any other access restrictions communicated by SRB. Emergency access by key or other means does not create permission for normal training during closed hours.</p>
+        <p style={{ marginBottom: '1rem' }}>Violation of this access policy may result in immediate suspension or termination of membership privileges. Member may be financially responsible for any loss, damage, injury, security expense, rekeying, access system changes, or other costs arising from misuse of their access or unauthorized entry connected to their credentials.</p>
 
         <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>5. Code of Conduct</p>
         <p style={{ marginBottom: '1rem' }}>Member agrees to treat all athletes, coaches, and staff with respect consistent with SRB's core values of Radical Care, Transparency in Power, and Strength in Community. Harassment, discrimination, or conduct that endangers others will result in immediate suspension pending review.</p>
 
-        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>6. Liability</p>
+        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>6. Liability and Unsupervised Access</p>
         <p style={{ marginBottom: '1rem' }}>This Agreement supplements, and does not replace, the SRB Liability Waiver which Member has separately signed. Member acknowledges that training involves inherent risks and agrees to train within their limits and under appropriate supervision when warranted.</p>
+        <p style={{ marginBottom: '1rem' }}>Member understands that SRB may not have a coach, employee, contractor, or representative present during all hours of access. Member accepts responsibility for their own decisions, conduct, exercise selection, loading, use of equipment, and safety during unsupervised training.</p>
 
-        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>7. Cooperative Participation</p>
+        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>7. Video Surveillance and Facility Monitoring</p>
+        <p style={{ marginBottom: '1rem' }}>For the safety and security of members, staff, guests, and the facility, Member acknowledges that portions of SRB may be monitored or recorded by video surveillance where permitted by law. Video surveillance may be used to review safety incidents, unauthorized access, equipment damage, rule violations, facility security, and emergency situations.</p>
+
+        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>8. Cooperative Participation</p>
         <p style={{ marginBottom: '1rem' }}>Co-op members acknowledge their right and responsibility to participate in the governance of SRB, including attending quarterly meetings, voting on board elections, and contributing to the cooperative's direction and policies.</p>
 
-        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>8. Governing Law</p>
+        <p style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold)', marginBottom: '0.75rem' }}>9. Governing Law</p>
         <p style={{ marginBottom: '1rem' }}>This Agreement is governed by the laws of the State of Texas. Any disputes shall be resolved in Bastrop County, Texas.</p>
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', marginTop: '1rem' }}>
