@@ -12,7 +12,7 @@ const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const STEPS = [
   { id: 'waiver', title: 'Liability Waiver', description: 'Read and sign the SRB liability waiver', icon: '📋' },
   { id: 'agreement', title: 'Member Agreement', description: 'Read and sign the member agreement', icon: '🤝' },
-  { id: 'subscription', title: 'Founding Membership Preregistration', description: 'Reserve your founding membership through Stripe', icon: '💳' },
+  { id: 'subscription', title: 'Choose Your Access', description: 'Start a free trial or reserve your founding membership', icon: '💳' },
   { id: 'profile', title: 'Complete Your Profile', description: 'Add your name and contact info', icon: '👤' },
   { id: 'tutorial', title: 'Get Oriented', description: 'A quick tour of your app', icon: '🗺️' },
 ]
@@ -113,6 +113,20 @@ export default function Onboarding({ user, profile, onComplete }) {
     setSavingFounding(false)
   }
 
+  const startFreeTrial = async () => {
+    setSavingFounding(true)
+
+    const updates = { membership_type: 'Free Trial' }
+    const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
+
+    if (!error) {
+      setCurrentProfile(prev => ({ ...prev, ...updates }))
+      setActiveStep(null)
+    }
+
+    setSavingFounding(false)
+  }
+
   const handleStepClick = (stepId) => {
     if (activeStep === stepId) { setActiveStep(null); return }
 
@@ -165,11 +179,11 @@ export default function Onboarding({ user, profile, onComplete }) {
             Sacred Rebellion Barbell
           </div>
           <div style={{ fontSize: '12px', letterSpacing: '3px', color: 'var(--rose)', textTransform: 'uppercase', marginBottom: '1rem' }}>
-            Founding Membership
+            Strength is ritual. Rebellion is sacred.
           </div>
           <div style={{ width: '40px', height: '1px', background: 'var(--gold)', margin: '0 auto 1rem', opacity: 0.5 }} />
           <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.7 }}>
-            Claim your founding membership access below. You’ll create your account, sign the required documents, reserve your membership through Stripe, and complete your profile.
+            Create your account, sign the required documents, choose your access, and complete your profile.
           </p>
         </div>
 
@@ -229,8 +243,20 @@ export default function Onboarding({ user, profile, onComplete }) {
                   {step.id === 'subscription' && (
                     <div>
                       <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem', lineHeight: 1.7 }}>
-                        Reserve your founding membership below. If the Stripe table shows a $0 preregistration option, complete it there, then tap the confirmation button underneath.
+                        Choose a free trial if you want to try three classes first, or reserve your founding membership below.
                       </p>
+
+                      <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginBottom: '1rem' }}>
+                        <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                          Free Trial
+                        </div>
+                        <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', lineHeight: 1.6, marginBottom: '12px' }}>
+                          Try up to 3 classes. Trial access does not include programming, leaderboards, open gym, or member-only features.
+                        </p>
+                        <button className="btn-primary" onClick={startFreeTrial} disabled={savingFounding}>
+                          {savingFounding ? 'Saving...' : 'Start Free Trial'}
+                        </button>
+                      </div>
 
                       {checking && (
                         <div style={{ fontSize: '13px', color: 'var(--gold-light)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>

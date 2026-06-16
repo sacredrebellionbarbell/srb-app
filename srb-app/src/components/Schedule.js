@@ -3,6 +3,12 @@ import { supabase } from '../supabaseClient'
 import usePushNotifications from '../hooks/usePushNotifications'
 import AthletePanel from './AthletePanel'
 import { notifyCoach } from '../utils/notifyCoach'
+import {
+  FREE_TRIAL_CLASS_LIMIT,
+  hasClassAccess,
+  isCoach as profileIsCoach,
+  isFreeTrial
+} from '../utils/access'
 
 function toISO(d) { return d.toISOString().split('T')[0] }
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
@@ -38,9 +44,12 @@ export default function Schedule({ user, profile }) {
   const [checkinTime, setCheckinTime] = useState('6:00 AM')
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
-  const isCoach = profile?.role === 'coach'
+  const [trialUses, setTrialUses] = useState(0)
+  const isCoach = profileIsCoach(profile)
+  const isTrial = isFreeTrial(profile)
   const { permission, subscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(user)
-  const canSignUp = ['Class Access', 'Both'].includes(profile?.membership_type)
+  const canUsePaidClassAccess = hasClassAccess(profile)
+  const canSignUp = canUsePaidClassAccess || (isTrial && trialUses < FREE_TRIAL_CLASS_LIMIT)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -110,7 +119,28 @@ export default function Schedule({ user, profile }) {
     setLoading(false)
   }, [currentDate, iso, dayOfWeek])
 
+  const fetchTrialUses = useCallback(async () => {
+    if (!isTrial || !user?.id) {
+      setTrialUses(0)
+      return
+    }
+
+    const { data: oneTimeUses } = await supabase
+      .from('class_signups')
+      .select('id, classes(is_247)')
+      .eq('athlete_id', user.id)
+
+    const { data: recurringUses } = await supabase
+      .from('instance_signups')
+      .select('id')
+      .eq('athlete_id', user.id)
+
+    const classUses = (oneTimeUses || []).filter(s => !s.classes?.is_247).length
+    setTrialUses(classUses + (recurringUses || []).length)
+  }, [isTrial, user?.id])
+
   useEffect(() => { fetchClasses() }, [fetchClasses])
+  useEffect(() => { fetchTrialUses() }, [fetchTrialUses])
 
   useEffect(() => {
     if (isCoach) {
@@ -126,6 +156,7 @@ export default function Schedule({ user, profile }) {
 
   // Sign up for a one-time class
   const signup = async (classId) => {
+    if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your free trial classes are used. Upgrade to keep training.'); return }
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
 
@@ -146,17 +177,19 @@ export default function Schedule({ user, profile }) {
       )
 
       showToast('Signed up!')
+      fetchTrialUses()
       fetchClasses()
     }
   }
 
   const unsignup = async (classId) => {
     await supabase.from('class_signups').delete().match({ class_id: classId, athlete_id: user.id })
-    showToast('Removed'); fetchClasses()
+    showToast('Removed'); fetchTrialUses(); fetchClasses()
   }
 
   // Sign up for a recurring class instance
   const signupInstance = async (instanceId) => {
+    if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your free trial classes are used. Upgrade to keep training.'); return }
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
 
@@ -175,13 +208,28 @@ export default function Schedule({ user, profile }) {
       )
 
       showToast('Signed up!')
+      fetchTrialUses()
       fetchClasses()
     }
   }
 
   const unsignupInstance = async (instanceId) => {
     await supabase.from('instance_signups').delete().match({ instance_id: instanceId, athlete_id: user.id })
-    showToast('Removed'); fetchClasses()
+    showToast('Removed'); fetchTrialUses(); fetchClasses()
+  }
+
+  const removeFromClass = async (classId, athleteId) => {
+    if (!isCoach || !athleteId) return
+    await supabase.from('class_signups').delete().match({ class_id: classId, athlete_id: athleteId })
+    showToast('Athlete removed')
+    fetchClasses()
+  }
+
+  const removeFromInstance = async (instanceId, athleteId) => {
+    if (!isCoach || !instanceId || !athleteId) return
+    await supabase.from('instance_signups').delete().match({ instance_id: instanceId, athlete_id: athleteId })
+    showToast('Athlete removed')
+    fetchClasses()
   }
 
   // Coach manually adds to one-time class
@@ -226,6 +274,7 @@ export default function Schedule({ user, profile }) {
 
   const checkin247 = async () => {
     if (!has247) return
+    if (!canUsePaidClassAccess) { showToast('Open gym access is for active members only.'); return }
     const { error } = await supabase.from('class_signups').insert({
       class_id: has247.id, athlete_id: user.id,
       checkin_time: checkinTime, is_247_checkin: true
@@ -264,7 +313,7 @@ export default function Schedule({ user, profile }) {
       </div>
 
       {/* 24/7 Access */}
-      {has247 && (
+      {has247 && (isCoach || canUsePaidClassAccess) && (
         <div className="class-247">
           <div className="class-247-title">24/7 Access</div>
           {isCoach ? (
@@ -324,6 +373,20 @@ export default function Schedule({ user, profile }) {
         {isCoach && <button className="btn-sm" onClick={() => setShowForm(!showForm)}>+ Add Class</button>}
       </div>
 
+      {isTrial && (
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <div className="panel-title">Free Trial</div>
+          <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.6, margin: 0 }}>
+            {Math.min(trialUses, FREE_TRIAL_CLASS_LIMIT)} of {FREE_TRIAL_CLASS_LIMIT} trial classes used. Free trials include classes only; programming and open gym unlock with membership.
+          </p>
+          {trialUses >= FREE_TRIAL_CLASS_LIMIT && (
+            <p style={{ fontSize: '14px', color: 'var(--gold-light)', lineHeight: 1.6, margin: '10px 0 0' }}>
+              Your trial classes are complete. Upgrade in Profile to keep signing up.
+            </p>
+          )}
+        </div>
+      )}
+
       {isCoach && showForm && <ClassForm onSaved={() => { setShowForm(false); fetchClasses() }} />}
 
       {loading && <div className="loading">Loading...</div>}
@@ -346,6 +409,7 @@ export default function Schedule({ user, profile }) {
           onSignup={() => signup(cls.id)}
           onUnsignup={() => unsignup(cls.id)}
           onManualAdd={(athleteId) => manualAdd(cls.id, athleteId)}
+          onRemoveAthlete={(athleteId) => removeFromClass(cls.id, athleteId)}
           onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
@@ -361,6 +425,7 @@ export default function Schedule({ user, profile }) {
           onSignup={() => signupInstance(cls.instance?.id)}
           onUnsignup={() => unsignupInstance(cls.instance?.id)}
           onManualAdd={(athleteId) => manualAddInstance(cls.instance?.id, athleteId)}
+          onRemoveAthlete={(athleteId) => removeFromInstance(cls.instance?.id, athleteId)}
           onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
@@ -377,7 +442,7 @@ export default function Schedule({ user, profile }) {
   )
 }
 
-function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onAthleteClick }) {
+function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onAthleteClick }) {
   const isSignedUp = cls.class_signups?.some(s => s.athlete_id === user.id)
   const spots = cls.capacity - (cls.class_signups?.length || 0)
   const full = spots <= 0
@@ -399,12 +464,12 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
         <span>{cls.duration_minutes} min</span>
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
-      <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onAthleteClick={onAthleteClick} />
+      <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onAthleteClick={onAthleteClick} />
     </div>
   )
 }
 
-function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onAthleteClick }) {
+function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onAthleteClick }) {
   const instance = cls.instance
   const signups = instance?.instance_signups || []
   const isSignedUp = signups.some(s => s.athlete_id === user.id)
@@ -433,12 +498,12 @@ function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsign
         <span style={{ color: 'var(--gold)', fontSize: '11px' }}>Recurring</span>
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
-      <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onAthleteClick={onAthleteClick} />
+      <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onAthleteClick={onAthleteClick} />
     </div>
   )
 }
 
-function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManualAdd, onAthleteClick }) {
+function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManualAdd, onRemoveAthlete, onAthleteClick }) {
   return (
     <>
       <div className="class-spots">
@@ -450,8 +515,16 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
           {signups.map((s, i) => (
             <span key={i}
               onClick={() => { if (onAthleteClick && s.athlete_id) onAthleteClick(s.athlete_id) }}
-              style={{ fontSize: '12px', color: onAthleteClick ? 'var(--gold-light)' : 'var(--charcoal-light)', background: 'rgba(245,240,232,0.04)', border: '1px solid var(--border)', borderRadius: '2px', padding: '2px 8px', cursor: onAthleteClick ? 'pointer' : 'default' }}>
+              style={{ fontSize: '12px', color: onAthleteClick ? 'var(--gold-light)' : 'var(--charcoal-light)', background: 'rgba(245,240,232,0.04)', border: '1px solid var(--border)', borderRadius: '2px', padding: '2px 8px', cursor: onAthleteClick ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               {s.profiles?.name || 'Athlete'}
+              <button
+                type="button"
+                aria-label={`Remove ${s.profiles?.name || 'athlete'} from class`}
+                onClick={(e) => { e.stopPropagation(); onRemoveAthlete?.(s.athlete_id) }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--rose-light)', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 0 1px' }}
+              >
+                ×
+              </button>
             </span>
           ))}
         </div>

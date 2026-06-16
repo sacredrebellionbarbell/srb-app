@@ -61,6 +61,7 @@ body{font-family:'Lato',sans-serif;background:var(--charcoal);color:var(--bone);
 .track-open{background:rgba(200,169,106,0.15);color:var(--gold-light);border:1px solid var(--gold-dark)}
 .future-badge{font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:3px 10px;border-radius:2px;background:rgba(200,169,106,0.08);color:var(--gold-dark);border:1px solid rgba(200,169,106,0.25)}
 .membership-badge{font-size:10px;letter-spacing:2px;text-transform:uppercase;padding:3px 10px;border-radius:2px;font-family:'Lato',sans-serif}
+.membership-trial{background:rgba(167,121,85,0.18);color:var(--gold-light);border:1px solid #A77955}
 .membership-class{background:rgba(107,115,85,0.2);color:var(--moss-light);border:1px solid var(--moss)}
 .membership-pt{background:rgba(200,169,106,0.15);color:var(--gold-light);border:1px solid var(--gold-dark)}
 .membership-both{background:rgba(162,92,107,0.2);color:var(--rose-light);border:1px solid var(--rose)}

@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
-
-const MEMBERSHIP_TYPES = ['Class Access', 'Personal Training', 'Both', 'None']
-const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
+import { getAccessStatus, MEMBERSHIP_CLASS, MEMBERSHIP_TYPES } from '../utils/access'
 
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 
@@ -89,6 +87,7 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
                 {athlete.membership_type && (
                   <span className={`membership-badge ${MEMBERSHIP_CLASS[athlete.membership_type] || 'membership-none'}`}>{athlete.membership_type}</span>
                 )}
+                <span className={`membership-badge ${MEMBERSHIP_CLASS[athlete.membership_type] || 'membership-none'}`}>{getAccessStatus(athlete)}</span>
               </div>
               <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--charcoal-light)', fontSize: '24px', cursor: 'pointer', lineHeight: 1, flexShrink: 0 }}>×</button>
             </div>

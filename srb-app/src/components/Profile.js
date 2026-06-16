@@ -3,12 +3,12 @@ import { supabase } from '../supabaseClient'
 import MemberAgreement from './MemberAgreement'
 import AdHocLog from './AdHocLog'
 import CoopBylaws from './CoopBylaws'
+import { MEMBERSHIP_CLASS } from '../utils/access'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
-const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
