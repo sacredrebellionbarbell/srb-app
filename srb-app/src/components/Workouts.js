@@ -4,6 +4,7 @@ import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
 import VideoModal from './VideoModal'
+import { canSeeWorkouts, hasClassAccess, hasPrivateTrainingAccess, isCoach as profileIsCoach } from '../utils/access'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
@@ -61,7 +62,8 @@ export default function Workouts({ user, profile }) {
   const [editingAnnouncement, setEditingAnnouncement] = useState(false)
   const [announcementText, setAnnouncementText] = useState('')
   const [athletePanel, setAthletePanel] = useState(null)
-  const isCoach = profile?.role === 'coach'
+  const isCoach = profileIsCoach(profile)
+  const hasWorkoutAccess = canSeeWorkouts(profile)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
@@ -74,6 +76,12 @@ export default function Workouts({ user, profile }) {
     setLoading(true)
     const membershipType = profile?.membership_type
     const PUBLIC_TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
+
+    if (!hasWorkoutAccess) {
+      setWorkouts([])
+      setLoading(false)
+      return
+    }
 
     let query = supabase
       .from('workouts')
@@ -97,15 +105,15 @@ export default function Workouts({ user, profile }) {
 
     // Filter by membership type for non-coaches
     if (!isCoach) {
-      if (membershipType === 'Class Access') {
-        // Public tracks only
-        query = query.in('track', PUBLIC_TRACKS)
-      } else if (membershipType === 'Personal Training' || membershipType === 'Online Training' || membershipType === 'Nutrition') {
-        // Private track only — assigned workouts
-        query = query.eq('assigned_athlete_id', user.id)
-      } else if (membershipType === 'Both') {
+      if (membershipType === 'Both') {
         // Public tracks + private workouts
         query = query.or(`track.in.(${PUBLIC_TRACKS.map(t => `"${t}"`).join(',')}),assigned_athlete_id.eq.${user.id}`)
+      } else if (hasClassAccess(profile)) {
+        // Public tracks only
+        query = query.in('track', PUBLIC_TRACKS)
+      } else if (hasPrivateTrainingAccess(profile)) {
+        // Private track only — assigned workouts
+        query = query.eq('assigned_athlete_id', user.id)
       } else {
         // No membership — return nothing
         setWorkouts([])
@@ -118,7 +126,7 @@ export default function Workouts({ user, profile }) {
     setWorkouts(data || [])
     if (data?.length > 0) setExpandedId(data[0].id)
     setLoading(false)
-  }, [currentDate, isCoach, profile?.membership_type, user.id])
+  }, [currentDate, hasWorkoutAccess, isCoach, profile, profile?.membership_type, user.id])
 
   useEffect(() => { fetchWorkouts() }, [fetchWorkouts])
 
@@ -246,10 +254,10 @@ export default function Workouts({ user, profile }) {
 
       {!loading && workouts.length === 0 && (
         <div className="empty">
-          {(!profile?.membership_type || profile?.membership_type === 'None') && !isCoach
+          {!hasWorkoutAccess
             ? <>
-                <h3>No Active Membership</h3>
-                <p>Set up your membership in the Profile tab to access programming.</p>
+                <h3>Membership Required</h3>
+                <p>Programming is reserved for active paid members. Start or upgrade your membership in the Profile tab when you're ready to train with the full app.</p>
               </>
             : <>
                 <h3>{isFuture ? 'Nothing posted yet' : 'Rest day'}</h3>

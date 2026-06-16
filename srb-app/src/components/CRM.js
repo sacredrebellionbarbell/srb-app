@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import AthletePanel from './AthletePanel'
+import { getAccessStatus, MEMBERSHIP_CLASS, MEMBERSHIP_TYPES } from '../utils/access'
 
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
-const MEMBERSHIP_TYPES = ['Class Access', 'Personal Training', 'Both', 'None']
-const MEMBERSHIP_CLASS = { 'Class Access': 'membership-class', 'Personal Training': 'membership-pt', 'Both': 'membership-both', 'None': 'membership-none' }
 
 export default function CRM({ user }) {
   const [members, setMembers] = useState([])
@@ -131,6 +130,7 @@ export default function CRM({ user }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{getAccessStatus(m)}</span>
               {m.membership_type && (
                 <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{m.membership_type}</span>
               )}

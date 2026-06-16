@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import VideoModal from './VideoModal'
+import { canSeeWorkouts } from '../utils/access'
 
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
@@ -11,6 +12,7 @@ function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, rep
 
 export default function Programs({ user, profile }) {
   const isCoach = profile?.role === 'coach'
+  const hasProgramAccess = canSeeWorkouts(profile)
   // Always treat as coach if role hasn't loaded yet and user created the program
   const canSeeAll = isCoach
   const [programs, setPrograms] = useState([])
@@ -44,11 +46,16 @@ export default function Programs({ user, profile }) {
 
   const fetchPrograms = useCallback(async () => {
     setLoading(true)
+    if (!hasProgramAccess) {
+      setPrograms([])
+      setLoading(false)
+      return
+    }
     const { data, error } = await supabase.from('programs').select('*, profiles!programs_athlete_id_fkey(name, avatar_url)').order('created_at', { ascending: false })
 
     setPrograms(data || [])
     setLoading(false)
-  }, [])
+  }, [hasProgramAccess])
 
   useEffect(() => {
     fetchPrograms()
@@ -421,7 +428,14 @@ export default function Programs({ user, profile }) {
         {isCoach && <button className="btn-sm" onClick={() => setShowNewProgram(!showNewProgram)}>+ New Program</button>}
       </div>
 
-      {isCoach && showNewProgram && (
+      {!hasProgramAccess && (
+        <div className="empty">
+          <h3>Membership Required</h3>
+          <p>Programs are reserved for active paid members. Upgrade in Profile when you're ready for full training access.</p>
+        </div>
+      )}
+
+      {hasProgramAccess && isCoach && showNewProgram && (
         <div className="panel" style={{ marginBottom: '1.5rem' }}>
           <div className="panel-title">New Program</div>
           <div className="field"><label>Program Name</label><input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. 12-Week Strength Block" /></div>
@@ -440,16 +454,16 @@ export default function Programs({ user, profile }) {
         </div>
       )}
 
-      {loading && <div className="loading">Loading...</div>}
+      {hasProgramAccess && loading && <div className="loading">Loading...</div>}
 
-      {!loading && programs.length === 0 && (
+      {hasProgramAccess && !loading && programs.length === 0 && (
         <div className="empty">
           <h3>No programs yet</h3>
           <p>{isCoach ? 'Create a program above.' : 'Your coach hasn\'t assigned a program yet.'}</p>
         </div>
       )}
 
-      {programs.filter(p => canSeeAll || p.athlete_id === user.id || !p.athlete_id || p.created_by === user.id).map(p => (
+      {hasProgramAccess && programs.filter(p => canSeeAll || p.athlete_id === user.id || !p.athlete_id || p.created_by === user.id).map(p => (
         <div key={p.id} className="class-card" style={{ cursor: 'pointer' }} onClick={() => setSelectedProgram(p)}>
           <div className="class-card-header">
             <div>
