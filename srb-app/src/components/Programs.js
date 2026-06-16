@@ -9,6 +9,7 @@ const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
+function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
 
 export default function Programs({ user, profile }) {
   const isCoach = profile?.role === 'coach'
@@ -197,6 +198,16 @@ export default function Programs({ user, profile }) {
   const rmSet = (si, mi, sti) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : x))
   const copyDown = (si, mi, sti, f) => setWSecs(s => s.map((x, j) => j !== si ? x : { ...x, movements: x.movements.map((m, k) => k !== mi ? m : { ...m, sets: m.sets.map((st, l) => l <= sti ? st : { ...st, [f]: m.sets[sti][f] }) }) }))
   const updSet = (si, mi, sti, f, v) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : x))
+  const setSetCount = (si, mi, count) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => {
+    if (k !== mi) return m
+    const next = quickSets(count).map((st, idx) => ({ ...st, ...(m.sets[idx] || {}), id: m.sets[idx]?.id || st.id, set_number: idx + 1 }))
+    return { ...m, sets: next }
+  }) } : x))
+  const updAccessoryPrescription = (si, mi, value) => setWSecs(s => s.map((x, j) => j === si ? { ...x, movements: x.movements.map((m, k) => {
+    if (k !== mi) return m
+    const firstSet = m.sets[0] || newSet(1)
+    return { ...m, sets: [{ ...firstSet, set_number: 1, reps: value, load: '', rpe: '' }] }
+  }) } : x))
 
   const completedCount = programWorkouts.filter(pw => pw.completed_at).length
 
@@ -271,7 +282,7 @@ export default function Programs({ user, profile }) {
             )}
             {transcribeErr && <p className="auth-error">{transcribeErr}</p>}
             {imagePreview && !transcribing && (
-              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} updAccessoryPrescription={updAccessoryPrescription} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
             )}
           </div>
         )}
@@ -279,7 +290,7 @@ export default function Programs({ user, profile }) {
         {isCoach && addMode === 'edit' && editingPw && (
           <div className="panel" style={{ marginBottom: '1.5rem' }}>
             <div className="panel-title">Edit Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet}
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} updAccessoryPrescription={updAccessoryPrescription}
               onSave={async () => {
                 if (!wTitle.trim()) { return }
                 const wid = editingPw.workouts?.id
@@ -309,7 +320,7 @@ export default function Programs({ user, profile }) {
         {isCoach && addMode === 'scratch' && (
           <div className="panel" style={{ marginBottom: '1.5rem' }}>
             <div className="panel-title">Build Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} updAccessoryPrescription={updAccessoryPrescription} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
           </div>
         )}
 
@@ -356,12 +367,19 @@ export default function Programs({ user, profile }) {
                             {m.notes && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginBottom: '4px', fontStyle: 'italic' }}>{m.notes}</div>}
                             {(m.sets || []).map((st, sti) => {
                               const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
+                              const isAccessoryPrescription = sec.type === 'Accessory' && (m.sets || []).length === 1 && st.reps && !st.load && !st.rpe
                               return (
                                 <div key={sti} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '3px 0', fontSize: '13px' }}>
-                                  <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {st.set_number}</span>
-                                  {st.reps && <span style={{ color: 'var(--bone)' }}>{st.reps} reps</span>}
-                                  {st.load && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>@ {st.load}</span>}
-                                  {st.rpe && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>RPE {st.rpe}</span>}
+                                  {isAccessoryPrescription ? (
+                                    <span style={{ color: 'var(--bone)' }}>{st.reps}</span>
+                                  ) : (
+                                    <>
+                                      <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {st.set_number}</span>
+                                      {st.reps && <span style={{ color: 'var(--bone)' }}>{st.reps} reps</span>}
+                                      {st.load && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>@ {st.load}</span>}
+                                      {st.rpe && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>RPE {st.rpe}</span>}
+                                    </>
+                                  )}
                                   <SetLogInput value={myLog?.value || ''} onSave={val => logSetValue(st.id, m.id, pw.workouts.id, val)} />
                                 </div>
                               )
@@ -537,7 +555,7 @@ function ProgramSectionNotesInput({ myLog, onSave }) {
   )
 }
 
-function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec, rmSec, moveSec, addMov, rmMov, updMov, addSet, rmSet, updSet, onSave, onCancel, imagePreview }) {
+function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec, rmSec, moveSec, addMov, rmMov, updMov, addSet, rmSet, updSet, copyDown, setSetCount, updAccessoryPrescription, onSave, onCancel, imagePreview }) {
   return (
     <div>
       {imagePreview && <img src={imagePreview} alt="Workout" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border)', marginBottom: '1rem' }} />}
@@ -558,6 +576,12 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
               )}
           </div>
           <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes (optional)" />
+          {sec.type === 'Accessory' && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '3 Rounds')}>3 Rounds</button>
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '4 Rounds')}>4 Rounds</button>
+            </div>
+          )}
           {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
             <div key={mov.id} className="mv-block">
               <div className="mv-block-header">
@@ -566,26 +590,47 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
               </div>
               <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
       <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
-              <div className="set-builder-header"><span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span></div>
-              {mov.sets.map((st, sti) => (
-                <div key={st.id} className="set-builder-row">
-                  <span className="set-num-label">{st.set_number}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
-                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="80%" style={{ flex: 1 }} />
-                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
-                    {sti < mov.sets.length - 1 && <button onClick={() => moveSec && copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
-                  </div>
-                  {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+              {sec.type === 'Accessory' ? (
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Prescription</label>
+                  <input
+                    type="text"
+                    value={mov.sets[0]?.reps || ''}
+                    onChange={e => updAccessoryPrescription(si, mi, e.target.value)}
+                    placeholder="3x12, 3x:20/side, 3x100m, or x12"
+                  />
                 </div>
-              ))}
-              <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {[3, 4, 5].map(count => (
+                      <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
+                        {count} Sets
+                      </button>
+                    ))}
+                  </div>
+                  <div className="set-builder-header"><span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span></div>
+                  {mov.sets.map((st, sti) => (
+                    <div key={st.id} className="set-builder-row">
+                      <span className="set-num-label">{st.set_number}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="80%" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+                    </div>
+                  ))}
+                  <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+                </>
+              )}
             </div>
           ))}
           {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}

@@ -381,12 +381,19 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                         {/* Per-set logging for any section with programmed sets */}
                         {sets.map((st, si) => {
                           const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
+                          const isAccessoryPrescription = sec.type === 'Accessory' && sets.length === 1 && st.reps && !st.load && !st.rpe
                           return (
                             <div key={si} className="set-log-row">
-                              <span className="set-number">Set {st.set_number}</span>
-                              {st.reps && <span className="set-reps">{st.reps} {parseInt(st.reps) === 1 ? 'rep' : 'reps'}</span>}
-                              {st.load && <span className="set-load">@ {st.load}</span>}
-                              {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
+                              {isAccessoryPrescription ? (
+                                <span className="set-reps">{st.reps}</span>
+                              ) : (
+                                <>
+                                  <span className="set-number">Set {st.set_number}</span>
+                                  {st.reps && <span className="set-reps">{st.reps} {parseInt(st.reps) === 1 ? 'rep' : 'reps'}</span>}
+                                  {st.load && <span className="set-load">@ {st.load}</span>}
+                                  {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
+                                </>
+                              )}
                               <SetLogInput
                                 value={myLog?.value || ''}
                                 scoreType={scoreType}
