@@ -1,0 +1,15 @@
+name: Auto High Five
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  auto-high-five:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add delayed coach high-fives
+        run: |
+          curl --fail --show-error --silent --request GET "${{ secrets.AUTO_HIGH_FIVE_URL }}" \
+            --header "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
