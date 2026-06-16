@@ -1,0 +1,262 @@
+import React, { useState, useEffect } from 'react'
+import { supabase } from '../supabaseClient'
+
+const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
+const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
+const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
+
+function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
+function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
+function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
+
+export default function PostWorkout({ user, onPosted }) {
+  const today = new Date().toISOString().split('T')[0]
+  const [title, setTitle] = useState('')
+  const [track, setTrack] = useState(TRACKS[0])
+  const [date, setDate] = useState(today)
+  const [notes, setNotes] = useState('')
+  const [secs, setSecs] = useState([newSec()])
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+
+  // Private track state
+  const [usePrivateTrack, setUsePrivateTrack] = useState(false)
+  const [assignedAthleteId, setAssignedAthleteId] = useState(null)
+  const [members, setMembers] = useState([])
+  const [privateTracks, setPrivateTracks] = useState([])
+
+  useEffect(() => {
+    supabase.from('profiles').select('id, name').order('name').then(({ data }) => setMembers(data || []))
+    supabase.from('private_tracks').select('*').then(({ data }) => setPrivateTracks(data || []))
+  }, [])
+
+  const addSec = () => setSecs([...secs, newSec()])
+
+  const moveSec = (i, dir) => {
+    const next = i + dir
+    if (next < 0 || next >= secs.length) return
+    const arr = [...secs]
+    const tmp = arr[i]; arr[i] = arr[next]; arr[next] = tmp
+    setSecs(arr)
+  }
+  const rmSec = i => setSecs(secs.filter((_, j) => j !== i))
+  const updSec = (i, f, v) => setSecs(secs.map((s, j) => j === i ? { ...s, [f]: v } : s))
+  const addMov = i => setSecs(secs.map((s, j) => j === i ? { ...s, movements: [...s.movements, newMov()] } : s))
+  const rmMov = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.filter((_, k) => k !== mi) } : s))
+  const updMov = (si, mi, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, [f]: v } : m) } : s))
+  const addSet = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: [...m.sets, newSet(m.sets.length + 1)] } : m) } : s))
+  const setSetCount = (si, mi, count) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => {
+    if (k !== mi) return m
+    const next = quickSets(count).map((st, idx) => ({ ...st, ...(m.sets[idx] || {}), id: m.sets[idx]?.id || st.id, set_number: idx + 1 }))
+    return { ...m, sets: next }
+  }) } : s))
+  const rmSet = (si, mi, sti) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : s))
+  const copyDown = (si, mi, sti, f) => {
+    setSecs(s => s.map((x, j) => j !== si ? x : {
+      ...x, movements: x.movements.map((m, k) => k !== mi ? m : {
+        ...m, sets: m.sets.map((st, l) => l <= sti ? st : { ...st, [f]: m.sets[sti][f] })
+      })
+    }))
+  }
+  const updSet = (si, mi, sti, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : s))
+  const updAccessoryPrescription = (si, mi, value) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => {
+    if (k !== mi) return m
+    const firstSet = m.sets[0] || newSet(1)
+    return { ...m, sets: [{ ...firstSet, set_number: 1, reps: value, load: '', rpe: '' }] }
+  }) } : s))
+
+  const submit = async () => {
+    if (!title.trim()) { setErr('Title is required'); return }
+    if (usePrivateTrack && !assignedAthleteId) { setErr('Please select a client'); return }
+    setLoading(true); setErr('')
+
+    // Resolve private track
+    let resolvedPrivateTrackId = null
+    if (usePrivateTrack && assignedAthleteId) {
+      const existing = privateTracks.find(pt => pt.athlete_id === assignedAthleteId)
+      if (existing) {
+        resolvedPrivateTrackId = existing.id
+      } else {
+        const athlete = members.find(m => m.id === assignedAthleteId)
+        const { data: newTrack } = await supabase.from('private_tracks')
+          .insert({ name: `${athlete?.name || 'Client'}'s Programming`, athlete_id: assignedAthleteId, created_by: user.id })
+          .select().single()
+        if (newTrack) {
+          resolvedPrivateTrackId = newTrack.id
+          setPrivateTracks(prev => [...prev, newTrack])
+        }
+      }
+    }
+
+    const { data: workout, error: wErr } = await supabase
+      .from('workouts')
+      .insert({
+        title: title.trim(),
+        track: usePrivateTrack ? 'Private' : track,
+        date,
+        notes: notes.trim(),
+        private_track_id: resolvedPrivateTrackId,
+        assigned_athlete_id: usePrivateTrack ? assignedAthleteId : null
+      })
+      .select().single()
+
+    if (wErr) { setErr(wErr.message); setLoading(false); return }
+
+    for (let si = 0; si < secs.length; si++) {
+      const sec = secs[si]
+      const validMovs = sec.movements.filter(m => m.name.trim())
+      if (!validMovs.length) continue
+      const { data: section } = await supabase
+        .from('workout_sections')
+        .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
+        .select().single()
+      if (!section) continue
+      for (let mi = 0; mi < validMovs.length; mi++) {
+        const mov = validMovs[mi]
+        const { data: movement } = await supabase
+          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
+        if (!movement) continue
+        const validSets = mov.sets.filter(st => st.reps || st.load)
+        if (validSets.length > 0) {
+          await supabase.from('sets').insert(
+            validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx }))
+          )
+        }
+      }
+    }
+
+    setTitle(''); setNotes(''); setSecs([newSec()]); setAssignedAthleteId(null); setUsePrivateTrack(false)
+    setLoading(false)
+    onPosted()
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-title">Post New Workout</div>
+      {err && <p className="auth-error">{err}</p>}
+
+      <div className="two-col">
+        <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
+        <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+      </div>
+
+      {/* Public / Private toggle */}
+      <div className="field">
+        <label>Assign To</label>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+          <button className={!usePrivateTrack ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => { setUsePrivateTrack(false); setAssignedAthleteId(null) }}>Public Track</button>
+          <button className={usePrivateTrack ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => setUsePrivateTrack(true)}>Private Client</button>
+        </div>
+
+        {!usePrivateTrack && (
+          <select value={track} onChange={e => setTrack(e.target.value)}>
+            {TRACKS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
+
+        {usePrivateTrack && (
+          <div>
+            <select value={assignedAthleteId || ''} onChange={e => setAssignedAthleteId(e.target.value || null)}>
+              <option value="">Select client...</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {assignedAthleteId && (
+              <p style={{ fontSize: '12px', color: 'var(--moss-light)', marginTop: '6px' }}>✓ Only visible to this client</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="field">
+        <label>General Notes</label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Intent, scaling, cues..." />
+      </div>
+
+      <span className="sb-label">Workout Sections</span>
+      {secs.map((sec, si) => (
+        <div key={sec.id} className="ws-block">
+          <div className="ws-head">
+            <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            {secs.length > 1 && (
+                <>
+                  <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
+                  <button className="btn-rm" onClick={() => moveSec(si, 1)} disabled={si === secs.length - 1} title="Move down" style={{ fontSize: '14px' }}>↓</button>
+                  <button className="btn-rm" onClick={() => rmSec(si)}>×</button>
+                </>
+              )}
+          </div>
+          <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes / workout description (optional)" />
+          {sec.type === 'Accessory' && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '3 Rounds')}>3 Rounds</button>
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '4 Rounds')}>4 Rounds</button>
+            </div>
+          )}
+
+          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
+            <div key={mov.id} className="mv-block">
+              <div className="mv-block-header">
+                <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder="Movement name (e.g. Back Squat)" />
+                {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
+              </div>
+              <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+              <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
+              {sec.type === 'Accessory' ? (
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Prescription</label>
+                  <input
+                    type="text"
+                    value={mov.sets[0]?.reps || ''}
+                    onChange={e => updAccessoryPrescription(si, mi, e.target.value)}
+                    placeholder="3x12, 3x:20/side, 3x100m, or x12"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                    {[3, 4, 5].map(count => (
+                      <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
+                        {count} Sets
+                      </button>
+                    ))}
+                  </div>
+                  <div className="set-builder-header">
+                    <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+                  </div>
+                  {mov.sets.map((st, sti) => (
+                    <div key={st.id} className="set-builder-row">
+                      <span className="set-num-label">{st.set_number}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
+                        {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                      </div>
+                      {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+                    </div>
+                  ))}
+                  <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+                </>
+              )}
+            </div>
+          ))}
+          {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
+        </div>
+      ))}
+      <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
+      <div style={{ marginTop: '1.5rem' }}>
+        <button className="btn-primary" onClick={submit} disabled={loading || (usePrivateTrack && !assignedAthleteId)}>
+          {loading ? 'Posting...' : 'Post Workout'}
+        </button>
+      </div>
+    </div>
+  )
+}

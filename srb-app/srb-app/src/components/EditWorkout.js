@@ -1,0 +1,226 @@
+import React, { useState, useEffect } from 'react'
+import { supabase } from '../supabaseClient'
+
+const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
+const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
+const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
+
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [{ id: Date.now() + Math.random(), set_number: 1, reps: '', load: '', rpe: '' }] } }
+function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
+function newSec() { return { id: null, type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
+function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
+
+export default function EditWorkout({ workout, onSaved, onClose }) {
+  const [title, setTitle] = useState(workout.title || '')
+  const [track, setTrack] = useState(workout.track || TRACKS[0])
+  const [date, setDate] = useState(workout.date || '')
+  const [notes, setNotes] = useState(workout.notes || '')
+  const [secs, setSecs] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    const loadSections = async () => {
+      const { data: sections } = await supabase
+        .from('workout_sections')
+        .select('*, movements(*, sets(*))')
+        .eq('workout_id', workout.id)
+        .order('order_index')
+      if (sections && sections.length > 0) {
+        setSecs(sections.map(s => ({
+          id: s.id, type: s.type,
+          score_type: s.score_type || 'No Score',
+          notes: s.notes || '',
+          movements: (s.movements || []).sort((a, b) => a.order_index - b.order_index).map(m => ({
+            id: m.id, name: m.name, notes: m.notes || '',
+            sets: (m.sets || []).length > 0
+              ? (m.sets || []).sort((a, b) => a.order_index - b.order_index).map(st => ({ id: st.id, set_number: st.set_number, reps: st.reps || '', load: st.load || '', rpe: st.rpe || '' }))
+              : [newSet(1)]
+          }))
+        })))
+      } else { setSecs([newSec()]) }
+    }
+    loadSections()
+  }, [workout])
+
+  const addSec = () => setSecs([...secs, newSec()])
+
+  const moveSec = (i, dir) => {
+    const next = i + dir
+    if (next < 0 || next >= secs.length) return
+    const arr = [...secs]
+    const tmp = arr[i]; arr[i] = arr[next]; arr[next] = tmp
+    setSecs(arr)
+  }
+  const rmSec = i => setSecs(secs.filter((_, j) => j !== i))
+  const updSec = (i, f, v) => setSecs(secs.map((s, j) => j === i ? { ...s, [f]: v } : s))
+  const addMov = i => setSecs(secs.map((s, j) => j === i ? { ...s, movements: [...s.movements, newMov()] } : s))
+  const rmMov = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.filter((_, k) => k !== mi) } : s))
+  const updMov = (si, mi, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, [f]: v } : m) } : s))
+  const addSet = (si, mi) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: [...m.sets, newSet(m.sets.length + 1)] } : m) } : s))
+  const setSetCount = (si, mi, count) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => {
+    if (k !== mi) return m
+    const next = quickSets(count).map((st, idx) => ({ ...st, ...(m.sets[idx] || {}), id: m.sets[idx]?.id || st.id, set_number: idx + 1 }))
+    return { ...m, sets: next }
+  }) } : s))
+  const rmSet = (si, mi, sti) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.filter((_, l) => l !== sti).map((st, l) => ({ ...st, set_number: l + 1 })) } : m) } : s))
+  const copyDown = (si, mi, sti, f) => {
+    setSecs(s => s.map((x, j) => j !== si ? x : {
+      ...x, movements: x.movements.map((m, k) => k !== mi ? m : {
+        ...m, sets: m.sets.map((st, l) => l <= sti ? st : { ...st, [f]: m.sets[sti][f] })
+      })
+    }))
+  }
+  const updSet = (si, mi, sti, f, v) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => k === mi ? { ...m, sets: m.sets.map((st, l) => l === sti ? { ...st, [f]: v } : st) } : m) } : s))
+  const updAccessoryPrescription = (si, mi, value) => setSecs(secs.map((s, j) => j === si ? { ...s, movements: s.movements.map((m, k) => {
+    if (k !== mi) return m
+    const firstSet = m.sets[0] || newSet(1)
+    return { ...m, sets: [{ ...firstSet, set_number: 1, reps: value, load: '', rpe: '' }] }
+  }) } : s))
+
+  const save = async () => {
+    if (!title.trim()) { setErr('Title is required'); return }
+    setLoading(true); setErr('')
+
+    // Update workout metadata
+    await supabase.from('workouts').update({ title: title.trim(), track, date, notes: notes.trim() }).eq('id', workout.id)
+
+    // Delete ALL existing sections (cascade deletes movements and sets)
+    const { error: delErr } = await supabase.from('workout_sections').delete().eq('workout_id', workout.id)
+    if (delErr) { setErr('Delete failed: '+ delErr.message); setLoading(false); return }
+
+    // Small delay to ensure delete is fully committed before inserts
+    await new Promise(r => setTimeout(r, 300))
+
+    // Re-insert sections fresh
+    for (let si = 0; si < secs.length; si++) {
+      const sec = secs[si]
+      const validMovs = sec.movements.filter(m => m.name.trim())
+      if (!validMovs.length) continue
+      const { data: section, error: secErr } = await supabase
+        .from('workout_sections')
+        .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
+        .select().single()
+      if (secErr || !section) continue
+      for (let mi = 0; mi < validMovs.length; mi++) {
+        const mov = validMovs[mi]
+        const { data: movement, error: movErr } = await supabase
+          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+        if (movErr || !movement) continue
+        const validSets = mov.sets.filter(st => st.reps || st.load)
+        if (validSets.length > 0) {
+          await supabase.from('sets').insert(
+            validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx }))
+          )
+        }
+      }
+    }
+    setLoading(false)
+    onSaved()
+  }
+
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal" style={{ maxWidth: '680px' }}>
+        <div className="modal-head">
+          <div><div className="modal-title">Edit Workout</div><div className="modal-sub">{workout.title}</div></div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          {err && <p className="auth-error">{err}</p>}
+          <div className="two-col">
+            <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} /></div>
+            <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
+          </div>
+          <div className="field">
+            <label>Track</label>
+            <select value={track} onChange={e => setTrack(e.target.value)}>{TRACKS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+          </div>
+          <div className="field"><label>General Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} /></div>
+
+          <span className="sb-label">Workout Sections</span>
+          {secs.map((sec, si) => (
+            <div key={si} className="ws-block">
+              <div className="ws-head">
+                <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                {secs.length > 1 && (
+                <>
+                  <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
+                  <button className="btn-rm" onClick={() => moveSec(si, 1)} disabled={si === secs.length - 1} title="Move down" style={{ fontSize: '14px' }}>↓</button>
+                  <button className="btn-rm" onClick={() => rmSec(si)}>×</button>
+                </>
+              )}
+              </div>
+              <input className="ws-notes" type="text" value={sec.notes} onChange={e => updSec(si, 'notes', e.target.value)} placeholder="Section notes / workout description (optional)" />
+              {sec.type === 'Accessory' && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '3 Rounds')}>3 Rounds</button>
+                  <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '4 Rounds')}>4 Rounds</button>
+                </div>
+              )}
+              {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
+                <div key={mi} className="mv-block">
+                  <div className="mv-block-header">
+                    <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder="Movement name" />
+                    {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
+                  </div>
+                  <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+                  {sec.type === 'Accessory' ? (
+                    <div className="field" style={{ marginBottom: 0 }}>
+                      <label>Prescription</label>
+                      <input
+                        type="text"
+                        value={mov.sets[0]?.reps || ''}
+                        onChange={e => updAccessoryPrescription(si, mi, e.target.value)}
+                        placeholder="3x12, 3x:20/side, 3x100m, or x12"
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                        {[3, 4, 5].map(count => (
+                          <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
+                            {count} Sets
+                          </button>
+                        ))}
+                      </div>
+                      <div className="set-builder-header">
+                        <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+                      </div>
+                      {mov.sets.map((st, sti) => (
+                        <div key={sti} className="set-builder-row">
+                          <span className="set-num-label">{st.set_number}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                            <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder="3" style={{ flex: 1 }} />
+                            {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                            <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder="90% or 185 lbs" style={{ flex: 1 }} />
+                            {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                            <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder="8" style={{ flex: 1 }} />
+                            {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
+                          </div>
+                          {mov.sets.length > 1 && <button className="btn-rm" onClick={() => rmSet(si, mi, sti)}>×</button>}
+                        </div>
+                      ))}
+                      <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
+                    </>
+                  )}
+                </div>
+              ))}
+              {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
+            </div>
+          ))}
+          <button className="btn-add-sec" onClick={addSec}>+ Add Section</button>
+          <div style={{ marginTop: '1.5rem', display: 'flex', gap: '10px' }}>
+            <button className="btn-primary" onClick={save} disabled={loading}>{loading ? 'Saving...' : 'Save Changes'}</button>
+            <button className="btn-ghost" onClick={onClose} style={{ flex: 'none', width: 'auto', padding: '10px 20px' }}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
