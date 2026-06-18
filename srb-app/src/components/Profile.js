@@ -11,7 +11,11 @@ const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
-function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
+function xWeight(s) {
+  if (/\bmiss\b/i.test(s || '')) return null
+  const m = (s || '').match(/(\d+\.?\d*)/)
+  return m ? parseFloat(m[1]) : null
+}
 function xReps(s) { const m = (s || '').match(/^(\d+)/); return m ? parseInt(m[1]) : 1 }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 
