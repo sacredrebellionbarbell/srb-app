@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 const MILESTONES = [1, 10, 25, 50, 100, 250, 500, 1000]
 
 function xWeight(s) {
+  if (/\bmiss\b/i.test(s || '')) return null
   const m = (s || '').match(/(\d+\.?\d*)/)
   return m ? parseFloat(m[1]) : null
 }
@@ -173,9 +174,11 @@ export default function AthleteMomentum({ user, profile }) {
   const [signups, setSignups] = useState([])
   const [loading, setLoading] = useState(true)
   const [showWeekly, setShowWeekly] = useState(false)
+  const [showWins, setShowWins] = useState(false)
 
   const weekKey = weekStartKey()
   const dismissKey = user?.id ? `srb_weekly_review_${user.id}_${weekKey}` : null
+  const winsDismissKey = user?.id ? `srb_athlete_wins_${user.id}_${weekKey}` : null
 
   useEffect(() => {
     fetchMomentum()
@@ -273,11 +276,25 @@ export default function AthleteMomentum({ user, profile }) {
     setShowWeekly(false)
   }
 
+  const dismissWins = () => {
+    if (winsDismissKey) localStorage.setItem(winsDismissKey, 'yes')
+    setShowWins(false)
+  }
+
+  useEffect(() => {
+    if (!user?.id || loading || !wins.length) {
+      setShowWins(false)
+      return
+    }
+    const dismissed = winsDismissKey ? localStorage.getItem(winsDismissKey) : 'yes'
+    setShowWins(!dismissed)
+  }, [user?.id, loading, wins.length, winsDismissKey])
+
   if (loading || (!wins.length && profile?.role === 'coach')) return null
 
   return (
     <>
-      {wins.length > 0 && (
+      {wins.length > 0 && showWins && (
         <div style={{
           background: 'rgba(162,92,107,0.10)',
           border: '1px solid rgba(162,92,107,0.55)',
@@ -285,15 +302,24 @@ export default function AthleteMomentum({ user, profile }) {
           padding: '12px 14px',
           marginBottom: '1rem'
         }}>
-          <div style={{
-            fontFamily: 'Cinzel, serif',
-            color: 'var(--gold-light)',
-            letterSpacing: '2px',
-            textTransform: 'uppercase',
-            fontSize: '12px',
-            marginBottom: '8px'
-          }}>
-            🔥 Athlete Wins
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', marginBottom: '8px' }}>
+            <div style={{
+              fontFamily: 'Cinzel, serif',
+              color: 'var(--gold-light)',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              fontSize: '12px'
+            }}>
+              🔥 Athlete Wins
+            </div>
+            <button
+              type="button"
+              onClick={dismissWins}
+              aria-label="Dismiss athlete wins"
+              style={{ background: 'transparent', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '18px', lineHeight: 1, padding: '0 2px' }}
+            >
+              ×
+            </button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
