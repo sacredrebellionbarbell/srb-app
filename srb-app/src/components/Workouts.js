@@ -13,6 +13,7 @@ function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long',
 function toISO(d) { return d.toISOString().split('T')[0] }
 
 function parseScore(val, scoreType) {
+  if (isMissValue(val)) return -Infinity
   if (!val) return -Infinity
   // For time: parse mm:ss into seconds
   if (scoreType === 'For Time') {
@@ -26,7 +27,7 @@ function parseScore(val, scoreType) {
 
 function getBestScore(values, scoreType) {
   if (!values || values.length === 0) return null
-  const valid = values.filter(Boolean)
+  const valid = values.filter(value => value && !isMissValue(value))
   if (!valid.length) return null
   return valid.reduce((best, v) => parseScore(v, scoreType) > parseScore(best, scoreType) ? v : best, valid[0])
 }
@@ -50,6 +51,20 @@ function sectionScoreForSort(log, scoreType) {
   return log.score || null
 }
 
+function isMissValue(value) {
+  return /\bmiss\b/i.test(value || '')
+}
+
+function displaySetLogValue(value) {
+  return (value || '').replace(/\s+-\s+(Made|Miss)$/i, '')
+}
+
+function formatSetLogValue(value, made) {
+  const clean = (value || '').trim()
+  if (!clean) return ''
+  return `${clean} - ${made ? 'Made' : 'Miss'}`
+}
+
 export default function Workouts({ user, profile }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [workouts, setWorkouts] = useState([])
@@ -62,6 +77,7 @@ export default function Workouts({ user, profile }) {
   const [editingAnnouncement, setEditingAnnouncement] = useState(false)
   const [announcementText, setAnnouncementText] = useState('')
   const [athletePanel, setAthletePanel] = useState(null)
+  const [logModal, setLogModal] = useState(null)
   const isCoach = profileIsCoach(profile)
   const hasWorkoutAccess = canSeeWorkouts(profile)
 
@@ -159,27 +175,126 @@ export default function Workouts({ user, profile }) {
 
   // Auto-create a results row so reactions work for new set_logs system
   const ensureResultRow = async (workoutId) => {
-    await supabase.from('results').upsert(
+    const { data } = await supabase.from('results').upsert(
       { workout_id: workoutId, athlete_id: user.id, score: 'logged' },
       { onConflict: 'workout_id,athlete_id' }
-    )
+    ).select('*, profiles(name, avatar_url), reactions(*)').single()
+    return data
   }
 
-  const logSetValue = async (setId, movementId, workoutId, value) => {
-    const { error } = await supabase.from('set_logs').upsert(
-      { set_id: setId, movement_id: movementId, workout_id: workoutId, athlete_id: user.id, value },
-      { onConflict: 'set_id,athlete_id' }
-    )
-    if (!error) { await ensureResultRow(workoutId); showToast('Logged!'); fetchWorkouts() }
-    else showToast('Error: ' + error.message)
+  const ensureLocalResult = (workout, resultRow) => {
+    if (!resultRow) return workout.results || []
+    const results = workout.results || []
+    if (results.some(result => result.id === resultRow.id || result.athlete_id === resultRow.athlete_id)) {
+      return results.map(result => result.id === resultRow.id || result.athlete_id === resultRow.athlete_id ? { ...result, ...resultRow } : result)
+    }
+    return [...results, resultRow]
+  }
+
+  const updateSetLogsInState = (workoutId, movementId, savedLogs, resultRow) => {
+    const bySetId = new Map(savedLogs.map(log => [log.set_id, log]))
+    setWorkouts(prev => prev.map(workout => {
+      if (workout.id !== workoutId) return workout
+      return {
+        ...workout,
+        results: ensureLocalResult(workout, resultRow),
+        workout_sections: (workout.workout_sections || []).map(section => ({
+          ...section,
+          movements: (section.movements || []).map(movement => {
+            if (movement.id !== movementId) return movement
+            return {
+              ...movement,
+              sets: (movement.sets || []).map(set => {
+                const saved = bySetId.get(set.id)
+                if (!saved) return set
+                const nextLogs = [
+                  ...(set.set_logs || []).filter(log => log.athlete_id !== user.id),
+                  {
+                    ...saved,
+                    profiles: {
+                      name: profile?.name,
+                      avatar_url: profile?.avatar_url
+                    }
+                  }
+                ]
+                return { ...set, set_logs: nextLogs }
+              })
+            }
+          })
+        }))
+      }
+    }))
+  }
+
+  const logMovementSets = async (workoutId, movementId, rows) => {
+    const payload = rows
+      .filter(row => row.value.trim())
+      .map(row => ({
+        set_id: row.setId,
+        movement_id: movementId,
+        workout_id: workoutId,
+        athlete_id: user.id,
+        value: formatSetLogValue(row.value, row.made)
+      }))
+
+    if (!payload.length) {
+      showToast('Add at least one set value')
+      return false
+    }
+
+    const { data, error } = await supabase
+      .from('set_logs')
+      .upsert(payload, { onConflict: 'set_id,athlete_id' })
+      .select('*')
+
+    if (error) {
+      showToast('Error: ' + error.message)
+      return false
+    }
+
+    const resultRow = await ensureResultRow(workoutId)
+    updateSetLogsInState(workoutId, movementId, data || payload, resultRow)
+    showToast('Sets logged')
+    return true
+  }
+
+  const updateSectionLogInState = (workoutId, sectionId, savedLog, resultRow) => {
+    setWorkouts(prev => prev.map(workout => {
+      if (workout.id !== workoutId) return workout
+      return {
+        ...workout,
+        results: ensureLocalResult(workout, resultRow),
+        workout_sections: (workout.workout_sections || []).map(section => {
+          if (section.id !== sectionId) return section
+          const currentLogs = section.section_logs || []
+          return {
+            ...section,
+            section_logs: [
+              ...currentLogs.filter(log => log.athlete_id !== user.id),
+              {
+                ...savedLog,
+                profiles: {
+                  name: profile?.name,
+                  avatar_url: profile?.avatar_url
+                }
+              }
+            ]
+          }
+        })
+      }
+    }))
   }
 
   const logSectionScore = async (sectionId, workoutId, payload) => {
-    const { error } = await supabase.from('section_logs').upsert(
+    const { data, error } = await supabase.from('section_logs').upsert(
       { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload },
       { onConflict: 'section_id,athlete_id' }
-    )
-    if (!error) { await ensureResultRow(workoutId); showToast('Logged!'); fetchWorkouts() }
+    ).select('*').single()
+    if (!error) {
+      const resultRow = await ensureResultRow(workoutId)
+      updateSectionLogInState(workoutId, sectionId, data || { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload }, resultRow)
+      showToast('Logged!')
+    }
     else showToast('Error: ' + error.message)
   }
 
@@ -276,7 +391,7 @@ export default function Workouts({ user, profile }) {
           isFuture={isFuture}
           expanded={expandedId === w.id}
           onToggle={() => setExpandedId(expandedId === w.id ? null : w.id)}
-          onLogSetValue={logSetValue}
+          onOpenLogSets={payload => setLogModal(payload)}
           onLogSectionScore={logSectionScore}
           onToggleReaction={toggleReaction}
           onPrepare={() => setPrepare({ workout: w, movements: getStrengthMovements(w) })}
@@ -305,6 +420,21 @@ export default function Workouts({ user, profile }) {
 
       {toast && <div className="toast">{toast}</div>}
 
+      {logModal && (
+        <SetLogModal
+          movement={logModal.movement}
+          section={logModal.section}
+          workout={logModal.workout}
+          userId={user.id}
+          onClose={() => setLogModal(null)}
+          onSave={async rows => {
+            const saved = await logMovementSets(logModal.workout.id, logModal.movement.id, rows)
+            if (saved) setLogModal(null)
+            return saved
+          }}
+        />
+      )}
+
       {athletePanel && (
         <AthletePanel
           athleteId={athletePanel}
@@ -316,7 +446,7 @@ export default function Workouts({ user, profile }) {
   )
 }
 
-function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onLogSetValue, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onDelete, onAthleteClick }) {
+function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onOpenLogSets, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onDelete, onAthleteClick }) {
   const [expandedAthlete, setExpandedAthlete] = useState(null)
   const [demoVideo, setDemoVideo] = useState(null)
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
@@ -378,7 +508,20 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                         )}
                       </div>
                         {m.notes && <div className="movement-notes-text">{m.notes}</div>}
-                        {/* Per-set logging for any section with programmed sets */}
+                        {sets.length > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                            <div style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>
+                              {summarizeSets(sets)}
+                            </div>
+                            <button
+                              className="btn-sm"
+                              style={{ fontSize: '11px', padding: '6px 12px' }}
+                              onClick={() => onOpenLogSets({ workout, section: sec, movement: m })}
+                            >
+                              Log Sets
+                            </button>
+                          </div>
+                        )}
                         {sets.map((st, si) => {
                           const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
                           const isAccessoryPrescription = sec.type === 'Accessory' && sets.length === 1 && st.reps && !st.load && !st.rpe
@@ -394,11 +537,11 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
                                   {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
                                 </>
                               )}
-                              <SetLogInput
-                                value={myLog?.value || ''}
-                                scoreType={scoreType}
-                                onSave={val => onLogSetValue(st.id, m.id, workout.id, val)}
-                              />
+                              {myLog?.value && (
+                                <span style={{ marginLeft: 'auto', color: isMissValue(myLog.value) ? 'var(--rose-light)' : 'var(--moss-light)', fontSize: '13px', fontFamily: 'Cinzel, serif' }}>
+                                  {displaySetLogValue(myLog.value)}
+                                </span>
+                              )}
                             </div>
                           )
                         })}
@@ -495,6 +638,123 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onL
         </div>
       )}
     {demoVideo && <VideoModal url={demoVideo.url} title={demoVideo.title} onClose={() => setDemoVideo(null)} />}
+    </div>
+  )
+}
+
+function summarizeSets(sets) {
+  const count = sets.length
+  const reps = [...new Set(sets.map(st => st.reps).filter(Boolean))]
+  if (count === 1) return sets[0]?.reps || '1 set'
+  if (reps.length === 1) return `${count}x${reps[0]}`
+  return `${count} sets`
+}
+
+function SetLogModal({ movement, section, workout, userId, onClose, onSave }) {
+  const sets = (movement.sets || []).sort((a, b) => a.order_index - b.order_index)
+  const [rows, setRows] = useState(() => sets.map(st => {
+    const existing = (st.set_logs || []).find(log => log.athlete_id === userId)
+    return {
+      setId: st.id,
+      setNumber: st.set_number,
+      reps: st.reps || '',
+      load: st.load || '',
+      rpe: st.rpe || '',
+      value: displaySetLogValue(existing?.value || ''),
+      made: !isMissValue(existing?.value || '')
+    }
+  }))
+  const [saving, setSaving] = useState(false)
+
+  const updateRow = (index, patch) => {
+    setRows(current => current.map((row, i) => i === index ? { ...row, ...patch } : row))
+  }
+
+  const copyDown = (index) => {
+    setRows(current => current.map((row, i) => i > index ? { ...row, value: current[index].value, made: current[index].made } : row))
+  }
+
+  const save = async () => {
+    setSaving(true)
+    const ok = await onSave(rows)
+    if (!ok) setSaving(false)
+  }
+
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal">
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">Log Sets</div>
+            <div className="modal-sub">{movement.name} · {summarizeSets(sets)} · {workout.title}</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          {section?.notes && (
+            <p style={{ color: 'var(--charcoal-light)', fontSize: '13px', lineHeight: 1.6, marginBottom: '1rem', fontStyle: 'italic' }}>
+              {section.notes}
+            </p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {rows.map((row, index) => (
+              <div key={row.setId} style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid var(--border)', borderRadius: '3px', padding: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '12px' }}>Set {row.setNumber}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '2px' }}>
+                      {[row.reps && `${row.reps} reps`, row.load && `@ ${row.load}`, row.rpe && `RPE ${row.rpe}`].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={row.value}
+                    onChange={e => updateRow(index, { value: e.target.value })}
+                    placeholder="Weight / result"
+                    autoFocus={index === 0}
+                    style={{ width: '100%', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '8px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyDown(index)}
+                    disabled={index === rows.length - 1 || !row.value.trim()}
+                    title="Copy this result to sets below"
+                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--charcoal-light)', borderRadius: '2px', width: '34px', height: '34px', cursor: index === rows.length - 1 || !row.value.trim() ? 'not-allowed' : 'pointer', opacity: index === rows.length - 1 || !row.value.trim() ? 0.4 : 1 }}
+                  >
+                    ↓
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    className={row.made ? 'btn-moss' : 'btn-ghost'}
+                    onClick={() => updateRow(index, { made: true })}
+                    style={{ fontSize: '10px' }}
+                  >
+                    Made
+                  </button>
+                  <button
+                    type="button"
+                    className={!row.made ? 'btn-sm' : 'btn-ghost'}
+                    onClick={() => updateRow(index, { made: false })}
+                    style={{ fontSize: '10px' }}
+                  >
+                    Miss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+            <button className="btn-primary" onClick={save} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Sets'}
+            </button>
+            <button className="btn-ghost" onClick={onClose} style={{ width: '100%' }}>Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
