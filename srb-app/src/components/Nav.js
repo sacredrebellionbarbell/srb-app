@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
+  { id: 'sheet-import', label: 'Import Sheet', icon: '📄', coachOnly: true },
   { id: 'crm', label: 'Members', icon: '👥', coachOnly: true },
   { id: 'leads', label: 'Leads', icon: '🎯', coachOnly: true },
 ]
