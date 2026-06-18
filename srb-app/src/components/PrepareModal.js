@@ -4,7 +4,11 @@ import { supabase } from '../supabaseClient'
 const PCTS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
-function xWeight(s) { const m = (s || '').match(/(\d+\.?\d*)/); return m ? parseFloat(m[1]) : null }
+function xWeight(s) {
+  if (/\bmiss\b/i.test(s || '')) return null
+  const m = (s || '').match(/(\d+\.?\d*)/)
+  return m ? parseFloat(m[1]) : null
+}
 function xReps(s) { const m = (s || '').match(/^(\d+)/); return m ? parseInt(m[1]) : 1 }
 
 function parseLoad(load) {
