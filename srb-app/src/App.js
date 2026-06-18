@@ -15,6 +15,7 @@ import SupertotalRegistration from './components/SupertotalRegistration'
 import Leads from './components/Leads'
 import Programs from './components/Programs'
 import AthleteMomentum from './components/AthleteMomentum'
+import SheetImport from './components/SheetImport'
 
 function KioskWrapper() {
   if (window.location.pathname === '/kiosk') return <Kiosk />
@@ -98,6 +99,7 @@ function AppMain() {
         {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'programs' && <Programs user={session.user} profile={profile} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
+        {tab === 'sheet-import' && isCoach && <SheetImport />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
         {tab === 'leads' && isCoach && <Leads />}
         {tab === 'shop' && (
