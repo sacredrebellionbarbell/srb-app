@@ -222,3 +222,90 @@ body{font-family:'Lato',sans-serif;background:var(--charcoal);color:var(--bone);
 }
 .set-log-row{display:flex;align-items:center;gap:10px;padding:5px 0 5px 12px;font-size:14px;border-bottom:1px solid rgba(200,169,106,0.05)}
 .set-log-row:last-child{border-bottom:none}
+
+/* Accessibility/readability pass: brighter surface contrast and larger type. */
+:root{
+  --gold:#D7B86F;
+  --gold-light:#F2DDAA;
+  --gold-dark:#AA8642;
+  --rose:#BC6E80;
+  --rose-light:#F0B6C2;
+  --rose-dark:#7D3D50;
+  --moss:#82906A;
+  --moss-light:#C7D0AA;
+  --bone:#FFF8EC;
+  --charcoal:#3A3731;
+  --charcoal-mid:#575249;
+  --charcoal-light:#D2C7B9;
+  --border:rgba(242,221,170,0.42);
+  --border-strong:rgba(242,221,170,0.68);
+}
+body{background:var(--charcoal);font-size:22px;line-height:1.6}
+.main{max-width:1080px;padding:2.25rem 1.75rem}
+.auth-card,.panel,.workout-card,.class-card,.pc,.class-247,.modal,.ws-block,.mv-block,.att-stat,.pct-card,.est-box{background:rgba(255,248,236,0.09);border-color:var(--border-strong)}
+.workout-body,.log-section{background:rgba(255,248,236,0.035)}
+.panel-title{font-size:22px;color:var(--gold-light);border-bottom-color:var(--border-strong)}
+.section-title{font-size:30px}
+.workout-title{font-size:25px}
+.class-title,.class-247-title{font-size:23px}
+.movement-block-name{font-size:23px;font-weight:700}
+.movement-notes-text,.section-block-notes,.workout-notes,.class-meta,.class-247-note,.no-data,.hist-date,.hist-note,.pr-date,.att-date,.att-time,.modal-sub,.auth-toggle,.field label,.hint,.empty,.section-block-title,.lb-title,.pc-title,.past-title,.todays-sets-title,.formula,.set-number,.set-rpe,.stat-label,.att-label,.pct-pct,.est-label,.profile-role,.date-nav-today,.future-badge,.track-badge,.membership-badge,.sb-label{color:var(--charcoal-light);opacity:1}
+.workout-notes{font-size:21px}
+.section-block-notes{font-size:19px}
+.movement-notes-text{font-size:18px}
+.set-log-row,.set-row,.lb-row,.hist-row,.pr-row,.att-row,.past-row,.todays-set-row{font-size:19px}
+.set-number{font-size:16px;min-width:56px}
+.set-reps,.att-class,.pr-mv,.hist-title,.lb-name{color:var(--bone)}
+.set-load,.hist-score,.pr-val,.lb-score,.todays-set-weight{color:var(--gold-light)}
+.set-load,.set-rpe{font-size:18px}
+.date-nav-label{font-size:24px;min-width:280px}
+.date-nav-btn{width:52px;height:52px;font-size:28px;border-color:var(--border-strong)}
+.field label{font-size:16px;margin-bottom:8px}
+.field input,.field select,.field textarea,.ws-notes,.ws-head select,.mv-block-header input,.mv-block-notes,.set-builder-row input{background:rgba(255,248,236,0.12);border-color:var(--border-strong);font-size:21px;color:var(--bone);padding:13px 16px}
+.field textarea{min-height:110px}
+.btn-primary{font-size:17px;padding:18px;line-height:1.35}
+.btn-sm,.btn-moss,.btn-ghost,.btn-add,.btn-add-sec,.filter-btn{font-size:15px;padding:10px 18px;line-height:1.35}
+.btn-rm{font-size:25px}
+.track-badge,.future-badge,.membership-badge{font-size:14px;padding:5px 12px}
+.section-block-title,.log-section h4,.pc-title,.lb-title,.past-title,.todays-sets-title{font-size:16px}
+.profile-name{font-size:34px}
+.profile-role{font-size:15px}
+.stat-val,.att-val{font-size:34px}
+.modal-title{font-size:24px}
+.modal-sub{font-size:18px}
+.modal-close{font-size:34px;color:var(--bone)}
+.modal{max-width:680px}
+.modal-body,.modal-head{padding:1.75rem}
+.auth-logo h1{font-size:29px}
+.auth-logo p{font-size:16px;color:var(--rose-light)}
+.auth-error{font-size:18px}
+.toast{font-size:17px;padding:16px 24px}
+.loading{font-size:18px;color:var(--gold-light)}
+.empty h3{font-size:28px;color:var(--gold-light)}
+.reaction-btn{font-size:18px;padding:6px 12px;border-color:var(--border-strong);color:var(--bone)}
+.lb-avatar,.lb-avatar-placeholder{width:38px;height:38px;font-size:15px}
+.profile-avatar,.profile-avatar-placeholder{width:104px;height:104px}
+.profile-avatar-placeholder{font-size:38px}
+.workout-header,.class-card,.class-247{padding:1.5rem 1.75rem}
+.workout-body{padding:1.5rem 1.75rem}
+.panel,.pc{padding:2.25rem}
+.set-builder-header span{font-size:13px;color:var(--charcoal-light)}
+.set-builder-row{grid-template-columns:48px 1fr 1fr 1fr auto;gap:8px}
+.set-num-label{font-size:16px;color:var(--charcoal-light)}
+@media(max-width:640px){
+  body{font-size:20px}
+  .main{padding:1.5rem 1rem}
+  .panel,.pc{padding:1.25rem}
+  .workout-header,.workout-body,.class-card,.class-247{padding:1.15rem}
+  .section-title{font-size:25px}
+  .workout-title{font-size:22px}
+  .class-title,.class-247-title,.movement-block-name{font-size:21px}
+  .date-nav{gap:0.75rem}
+  .date-nav-label{font-size:20px;min-width:180px}
+  .date-nav-btn{width:46px;height:46px}
+  .field input,.field select,.field textarea,.ws-notes,.ws-head select,.mv-block-header input,.mv-block-notes,.set-builder-row input{font-size:19px}
+  .btn-primary{font-size:16px}
+  .btn-sm,.btn-moss,.btn-ghost,.btn-add,.btn-add-sec,.filter-btn{font-size:14px}
+  .set-builder-row{grid-template-columns:38px 1fr;gap:8px}
+  .set-builder-header{display:none}
+}
