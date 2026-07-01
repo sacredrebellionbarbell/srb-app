@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
@@ -78,6 +78,7 @@ export default function Workouts({ user, profile }) {
   const [announcementText, setAnnouncementText] = useState('')
   const [athletePanel, setAthletePanel] = useState(null)
   const [logModal, setLogModal] = useState(null)
+  const [selectedTrack, setSelectedTrack] = useState('')
   const isCoach = profileIsCoach(profile)
   const hasWorkoutAccess = canSeeWorkouts(profile)
 
@@ -258,6 +259,39 @@ export default function Workouts({ user, profile }) {
   const goToday = () => setCurrentDate(new Date())
   const isToday = toISO(currentDate) === toISO(new Date())
   const isFuture = toISO(currentDate) > toISO(new Date())
+
+  const trackOptions = useMemo(() => {
+    const tracks = []
+    workouts.forEach(workout => {
+      if (workout.track && !tracks.includes(workout.track)) tracks.push(workout.track)
+    })
+    return tracks
+  }, [workouts])
+
+  const activeTrack = selectedTrack || (isCoach ? 'all' : trackOptions[0] || '')
+
+  const visibleWorkouts = useMemo(() => {
+    if (!activeTrack || activeTrack === 'all') return workouts
+    return workouts.filter(workout => workout.track === activeTrack)
+  }, [activeTrack, workouts])
+
+  useEffect(() => {
+    if (!trackOptions.length) {
+      if (selectedTrack) setSelectedTrack('')
+      return
+    }
+    if (selectedTrack === 'all' && isCoach) return
+    if (!selectedTrack || !trackOptions.includes(selectedTrack)) {
+      setSelectedTrack(isCoach ? 'all' : trackOptions[0])
+    }
+  }, [isCoach, selectedTrack, trackOptions])
+
+  useEffect(() => {
+    if (!visibleWorkouts.length) return
+    if (!visibleWorkouts.some(workout => workout.id === expandedId)) {
+      setExpandedId(visibleWorkouts[0].id)
+    }
+  }, [expandedId, visibleWorkouts])
 
   // Auto-create a results row so reactions work for new set_logs system
   const ensureResultRow = async (workoutId) => {
@@ -451,6 +485,22 @@ export default function Workouts({ user, profile }) {
         {!isToday && <button className="btn-ghost" style={{ fontSize: '12px' }} onClick={goToday}>Today</button>}
       </div>
 
+      {trackOptions.length > 1 && (
+        <div className="track-select-row">
+          <label htmlFor="workout-track-select">Track</label>
+          <select
+            id="workout-track-select"
+            value={activeTrack}
+            onChange={e => setSelectedTrack(e.target.value)}
+          >
+            {isCoach && <option value="all">All Tracks</option>}
+            {trackOptions.map(track => (
+              <option key={track} value={track}>{track}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {loading && <div className="loading">Loading...</div>}
 
       {!loading && workouts.length === 0 && (
@@ -468,7 +518,7 @@ export default function Workouts({ user, profile }) {
         </div>
       )}
 
-      {!loading && workouts.map(w => (
+      {!loading && visibleWorkouts.map(w => (
         <WorkoutCard
           key={w.id}
           workout={w}
