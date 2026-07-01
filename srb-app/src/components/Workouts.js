@@ -84,8 +84,57 @@ export default function Workouts({ user, profile }) {
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
   const deleteWorkout = async (workoutId) => {
-    await supabase.from('workouts').delete().eq('id', workoutId)
-    fetchWorkouts()
+    const fail = (label, error) => {
+      if (!error) return false
+      showToast(`${label}: ${error.message}`)
+      return true
+    }
+
+    const { data: sections, error: sectionLoadError } = await supabase
+      .from('workout_sections')
+      .select('id, movements(id, sets(id))')
+      .eq('workout_id', workoutId)
+
+    if (fail('Could not load workout pieces', sectionLoadError)) return
+
+    const sectionIds = (sections || []).map(section => section.id)
+    const movementIds = (sections || []).flatMap(section => (section.movements || []).map(movement => movement.id))
+    const setIds = (sections || []).flatMap(section =>
+      (section.movements || []).flatMap(movement => (movement.sets || []).map(set => set.id))
+    )
+
+    const { data: results, error: resultLoadError } = await supabase
+      .from('results')
+      .select('id')
+      .eq('workout_id', workoutId)
+
+    if (fail('Could not load workout results', resultLoadError)) return
+
+    const resultIds = (results || []).map(result => result.id)
+
+    if (resultIds.length) {
+      const { error } = await supabase.from('reactions').delete().in('result_id', resultIds)
+      if (fail('Could not delete reactions', error)) return
+    }
+
+    const deleteSteps = [
+      () => supabase.from('set_logs').delete().eq('workout_id', workoutId),
+      () => supabase.from('section_logs').delete().eq('workout_id', workoutId),
+      () => supabase.from('program_workouts').delete().eq('workout_id', workoutId),
+      () => resultIds.length ? supabase.from('results').delete().in('id', resultIds) : Promise.resolve({ error: null }),
+      () => setIds.length ? supabase.from('sets').delete().in('id', setIds) : Promise.resolve({ error: null }),
+      () => movementIds.length ? supabase.from('movements').delete().in('id', movementIds) : Promise.resolve({ error: null }),
+      () => sectionIds.length ? supabase.from('workout_sections').delete().in('id', sectionIds) : Promise.resolve({ error: null }),
+      () => supabase.from('workouts').delete().eq('id', workoutId)
+    ]
+
+    for (const step of deleteSteps) {
+      const { error } = await step()
+      if (fail('Delete failed', error)) return
+    }
+
+    showToast('Workout deleted')
+    setWorkouts(prev => prev.filter(workout => workout.id !== workoutId))
   }
 
   const fetchWorkouts = useCallback(async () => {
