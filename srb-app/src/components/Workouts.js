@@ -124,8 +124,7 @@ export default function Workouts({ user, profile }) {
       () => resultIds.length ? supabase.from('results').delete().in('id', resultIds) : Promise.resolve({ error: null }),
       () => setIds.length ? supabase.from('sets').delete().in('id', setIds) : Promise.resolve({ error: null }),
       () => movementIds.length ? supabase.from('movements').delete().in('id', movementIds) : Promise.resolve({ error: null }),
-      () => sectionIds.length ? supabase.from('workout_sections').delete().in('id', sectionIds) : Promise.resolve({ error: null }),
-      () => supabase.from('workouts').delete().eq('id', workoutId)
+      () => sectionIds.length ? supabase.from('workout_sections').delete().in('id', sectionIds) : Promise.resolve({ error: null })
     ]
 
     for (const step of deleteSteps) {
@@ -133,7 +132,45 @@ export default function Workouts({ user, profile }) {
       if (fail('Delete failed', error)) return
     }
 
-    showToast('Workout deleted')
+    const { data: deletedRows, error: workoutDeleteError } = await supabase
+      .from('workouts')
+      .delete()
+      .eq('id', workoutId)
+      .select('id')
+
+    if (fail('Could not delete workout', workoutDeleteError)) return
+
+    if (!deletedRows?.length) {
+      const { data: archivedRows, error: archiveError } = await supabase
+        .from('workouts')
+        .update({
+          date: null,
+          title: '[Deleted] Workout',
+          notes: 'Deleted from the app by a coach.'
+        })
+        .eq('id', workoutId)
+        .select('id')
+
+      if (archiveError || !archivedRows?.length) {
+        const { data: movedRows, error: moveError } = await supabase
+          .from('workouts')
+          .update({
+            date: '1900-01-01',
+            title: '[Deleted] Workout',
+            notes: 'Deleted from the app by a coach.'
+          })
+          .eq('id', workoutId)
+          .select('id')
+
+        if (fail('Could not hide workout', moveError)) return
+        if (!movedRows?.length) {
+          showToast('Workout pieces were deleted, but Supabase would not remove or hide the main workout row.')
+          return
+        }
+      }
+    }
+
+    showToast(deletedRows?.length ? 'Workout deleted' : 'Workout hidden')
     setWorkouts(prev => prev.filter(workout => workout.id !== workoutId))
   }
 
