@@ -12,6 +12,7 @@ import {
 
 function toISO(d) { return d.toISOString().split('T')[0] }
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
+function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }
 
 // Day of week helpers
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -95,7 +96,7 @@ export default function Schedule({ user, profile }) {
       // Try to get existing instance for today
       let { data: instance } = await supabase
         .from('class_instances')
-        .select('*, instance_signups(athlete_id, profiles(name, avatar_url))')
+        .select('*, instance_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
         .eq('class_id', cls.id)
         .eq('instance_date', iso)
         .single()
@@ -105,7 +106,7 @@ export default function Schedule({ user, profile }) {
         const { data: newInstance } = await supabase
           .from('class_instances')
           .insert({ class_id: cls.id, instance_date: iso })
-          .select('*, instance_signups(athlete_id, profiles(name, avatar_url))')
+          .select('*, instance_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
           .single()
         instance = newInstance
       }
@@ -230,6 +231,34 @@ export default function Schedule({ user, profile }) {
     await supabase.from('instance_signups').delete().match({ instance_id: instanceId, athlete_id: athleteId })
     showToast('Athlete removed')
     fetchClasses()
+  }
+
+  const markClassAttendance = async (classId, athleteId, attended) => {
+    if (!isCoach || !classId || !athleteId) return
+    const { error } = await supabase
+      .from('class_signups')
+      .update({ checkin_time: attended ? currentTimeLabel() : null })
+      .match({ class_id: classId, athlete_id: athleteId })
+
+    if (error) showToast('Could not update attendance: ' + error.message)
+    else {
+      showToast(attended ? 'Marked attended' : 'Attendance removed')
+      fetchClasses()
+    }
+  }
+
+  const markInstanceAttendance = async (instanceId, athleteId, attended) => {
+    if (!isCoach || !instanceId || !athleteId) return
+    const { error } = await supabase
+      .from('instance_signups')
+      .update({ checkin_time: attended ? currentTimeLabel() : null })
+      .match({ instance_id: instanceId, athlete_id: athleteId })
+
+    if (error) showToast('Could not update attendance: ' + error.message)
+    else {
+      showToast(attended ? 'Marked attended' : 'Attendance removed')
+      fetchClasses()
+    }
   }
 
   // Coach manually adds to one-time class
@@ -410,6 +439,7 @@ export default function Schedule({ user, profile }) {
           onUnsignup={() => unsignup(cls.id)}
           onManualAdd={(athleteId) => manualAdd(cls.id, athleteId)}
           onRemoveAthlete={(athleteId) => removeFromClass(cls.id, athleteId)}
+          onToggleAttendance={(athleteId, attended) => markClassAttendance(cls.id, athleteId, attended)}
           onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
@@ -426,6 +456,7 @@ export default function Schedule({ user, profile }) {
           onUnsignup={() => unsignupInstance(cls.instance?.id)}
           onManualAdd={(athleteId) => manualAddInstance(cls.instance?.id, athleteId)}
           onRemoveAthlete={(athleteId) => removeFromInstance(cls.instance?.id, athleteId)}
+          onToggleAttendance={(athleteId, attended) => markInstanceAttendance(cls.instance?.id, athleteId, attended)}
           onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
         />
       ))}
@@ -442,7 +473,7 @@ export default function Schedule({ user, profile }) {
   )
 }
 
-function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onAthleteClick }) {
+function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const isSignedUp = cls.class_signups?.some(s => s.athlete_id === user.id)
   const spots = cls.capacity - (cls.class_signups?.length || 0)
   const full = spots <= 0
@@ -464,12 +495,12 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
         <span>{cls.duration_minutes} min</span>
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
-      <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onAthleteClick={onAthleteClick} />
+      <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
     </div>
   )
 }
 
-function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onAthleteClick }) {
+function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const instance = cls.instance
   const signups = instance?.instance_signups || []
   const isSignedUp = signups.some(s => s.athlete_id === user.id)
@@ -498,12 +529,12 @@ function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsign
         <span style={{ color: 'var(--gold)', fontSize: '11px' }}>Recurring</span>
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
-      <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onAthleteClick={onAthleteClick} />
+      <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
     </div>
   )
 }
 
-function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManualAdd, onRemoveAthlete, onAthleteClick }) {
+function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   return (
     <>
       <div className="class-spots">
@@ -512,21 +543,33 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
       </div>
       {signups.length > 0 && isCoach && (
         <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {signups.map((s, i) => (
-            <span key={i}
-              onClick={() => { if (onAthleteClick && s.athlete_id) onAthleteClick(s.athlete_id) }}
-              style={{ fontSize: '12px', color: onAthleteClick ? 'var(--gold-light)' : 'var(--charcoal-light)', background: 'rgba(245,240,232,0.04)', border: '1px solid var(--border)', borderRadius: '2px', padding: '2px 8px', cursor: onAthleteClick ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              {s.profiles?.name || 'Athlete'}
-              <button
-                type="button"
-                aria-label={`Remove ${s.profiles?.name || 'athlete'} from class`}
-                onClick={(e) => { e.stopPropagation(); onRemoveAthlete?.(s.athlete_id) }}
-                style={{ background: 'transparent', border: 'none', color: 'var(--rose-light)', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 0 1px' }}
-              >
-                ×
-              </button>
-            </span>
-          ))}
+          {signups.map((s, i) => {
+            const attended = Boolean(s.checkin_time)
+            return (
+              <span key={i}
+                onClick={() => { if (onAthleteClick && s.athlete_id) onAthleteClick(s.athlete_id) }}
+                style={{ fontSize: '12px', color: onAthleteClick ? 'var(--gold-light)' : 'var(--charcoal-light)', background: attended ? 'rgba(107,115,85,0.18)' : 'rgba(245,240,232,0.04)', border: attended ? '1px solid var(--moss)' : '1px solid var(--border)', borderRadius: '2px', padding: '3px 8px', cursor: onAthleteClick ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span>{s.profiles?.name || 'Athlete'}</span>
+                {attended && <span style={{ color: 'var(--moss-light)', fontSize: '11px' }}>✓ {s.checkin_time}</span>}
+                <button
+                  type="button"
+                  aria-label={attended ? `Remove attendance for ${s.profiles?.name || 'athlete'}` : `Mark ${s.profiles?.name || 'athlete'} attended`}
+                  onClick={(e) => { e.stopPropagation(); onToggleAttendance?.(s.athlete_id, !attended) }}
+                  style={{ background: 'transparent', border: 'none', color: attended ? 'var(--moss-light)' : 'var(--gold-light)', cursor: 'pointer', fontSize: '12px', lineHeight: 1, padding: '0 2px' }}
+                >
+                  {attended ? 'Undo' : 'Check in'}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Remove ${s.profiles?.name || 'athlete'} from class`}
+                  onClick={(e) => { e.stopPropagation(); onRemoveAthlete?.(s.athlete_id) }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--rose-light)', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 0 1px' }}
+                >
+                  ×
+                </button>
+              </span>
+            )
+          })}
         </div>
       )}
       {signups.length > 0 && !isCoach && isSignedUp && (
