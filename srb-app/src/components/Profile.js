@@ -4,6 +4,7 @@ import MemberAgreement from './MemberAgreement'
 import AdHocLog from './AdHocLog'
 import CoopBylaws from './CoopBylaws'
 import { MEMBERSHIP_CLASS } from '../utils/access'
+import { attendanceDate, classAttendanceCount, earnedClassAchievements, isAttendanceCheckedIn, nextClassAchievement, normalizeAttendance } from '../utils/achievements'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
@@ -29,7 +30,7 @@ function toDateKey(value) {
 function calcStreaks(attendance) {
   const uniqueDates = [...new Set(
     (attendance || [])
-      .map(a => toDateKey(a.classes?.start_time || a.signed_up_at))
+      .map(a => toDateKey(attendanceDate(a)))
       .filter(Boolean)
   )].sort()
 
@@ -211,7 +212,12 @@ export default function Profile({ user, profile, onProfileUpdate }) {
       .eq('athlete_id', user.id)
       .order('signed_up_at', { ascending: false })
 
-    setAttendance(data || [])
+    const { data: recurringData } = await supabase
+      .from('instance_signups')
+      .select('id, athlete_id, checkin_time, class_instances(instance_date, classes(title, is_247))')
+      .eq('athlete_id', user.id)
+
+    setAttendance(normalizeAttendance(data || [], recurringData || []))
   }
 
   const buildPRs = (setLogs, legacyResults) => {
@@ -311,16 +317,19 @@ export default function Profile({ user, profile, onProfileUpdate }) {
     showToast('Rack settings saved')
   }
 
-  const totalClasses = attendance.filter(a => !a.classes?.is_247).length
-  const total247 = attendance.filter(a => a.classes?.is_247).length
-  const thisMonth = attendance.filter(a => {
-    const d = new Date(a.signed_up_at)
+  const totalClasses = classAttendanceCount(attendance)
+  const attendedRows = attendance.filter(isAttendanceCheckedIn)
+  const total247 = attendedRows.filter(a => a.is_247 || a.classes?.is_247).length
+  const thisMonth = attendedRows.filter(a => {
+    const d = new Date(attendanceDate(a))
     const now = new Date()
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
   }).length
 
   const streaks = calcStreaks(attendance)
   const prCount = prs.length
+  const classAchievements = earnedClassAchievements(attendance)
+  const nextAchievement = nextClassAchievement(attendance)
 
   return (
     <div>
@@ -377,6 +386,42 @@ export default function Profile({ user, profile, onProfileUpdate }) {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="pc" style={{ marginBottom: '1.5rem' }}>
+        <div className="pc-title">Class Achievements</div>
+
+        {classAchievements.length === 0 ? (
+          <div className="achievement-empty">
+            <div className="achievement-empty-icon">★</div>
+            <div>
+              <div className="achievement-empty-title">First badge at 20 classes</div>
+              <div className="achievement-empty-sub">{Math.max(20 - totalClasses, 0)} classes to go.</div>
+            </div>
+          </div>
+        ) : (
+          <div className="achievement-grid">
+            {classAchievements.map(achievement => (
+              <div key={achievement.count} className="achievement-card">
+                <div className="achievement-icon">{achievement.icon}</div>
+                <div>
+                  <div className="achievement-title">{achievement.title}</div>
+                  <div className="achievement-sub">{achievement.count} classes attended</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {nextAchievement && (
+          <div className="achievement-next">
+            <span>{nextAchievement.icon}</span>
+            <div>
+              <strong>Next: {nextAchievement.title}</strong>
+              <small>{nextAchievement.count - totalClasses} classes to go</small>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="pc" style={{ marginBottom: '1.5rem' }}>
@@ -454,11 +499,11 @@ export default function Profile({ user, profile, onProfileUpdate }) {
           <div className="att-stat"><div className="att-val">{streaks.best}</div><div className="att-label">Best Streak</div></div>
         </div>
 
-        {attendance.slice(0, 8).map((a, i) => (
+        {attendedRows.slice(0, 8).map((a, i) => (
           <div key={i} className="att-row">
-            <span className="att-class">{a.classes?.is_247 ? '24/7 Access' : a.classes?.title}</span>
+            <span className="att-class">{a.is_247 || a.classes?.is_247 ? '24/7 Access' : a.attendance_title || a.classes?.title || 'Class'}</span>
             {a.checkin_time && <span className="att-time">{a.checkin_time}</span>}
-            <span className="att-date">{a.classes?.start_time ? new Date(a.classes.start_time).toLocaleDateString() : new Date(a.signed_up_at).toLocaleDateString()}</span>
+            <span className="att-date">{attendanceDate(a) ? new Date(attendanceDate(a)).toLocaleDateString() : ''}</span>
           </div>
         ))}
       </div>
