@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
-
-const MILESTONES = [1, 10, 25, 50, 100, 250, 500, 1000]
+import { attendanceDate, classAttendanceRows, milestoneReachedForTotal, normalizeAttendance } from '../utils/achievements'
 
 function xWeight(s) {
   if (/\bmiss\b/i.test(s || '')) return null
@@ -115,7 +114,7 @@ function buildPrWins(setLogs) {
 function buildAttendanceWins(signups) {
   const byAthlete = {}
 
-  ;(signups || []).forEach(row => {
+  classAttendanceRows(signups || []).forEach(row => {
     if (!row.athlete_id) return
     if (!byAthlete[row.athlete_id]) byAthlete[row.athlete_id] = []
     byAthlete[row.athlete_id].push(row)
@@ -124,16 +123,18 @@ function buildAttendanceWins(signups) {
   const wins = []
 
   Object.entries(byAthlete).forEach(([athleteId, rows]) => {
-    const sorted = rows.sort((a, b) => new Date(a.signed_up_at) - new Date(b.signed_up_at))
+    const sorted = rows.sort((a, b) => new Date(attendanceDate(a) || 0) - new Date(attendanceDate(b) || 0))
     const total = sorted.length
     const latest = sorted[sorted.length - 1]
+    const milestone = milestoneReachedForTotal(total)
+    const latestDate = attendanceDate(latest)
 
-    if (MILESTONES.includes(total) && latest && daysAgo(latest.signed_up_at) <= 14) {
+    if (milestone && latest && daysAgo(latestDate) <= 14) {
       wins.push({
         type: 'attendance',
         athleteId,
-        date: latest.signed_up_at,
-        text: `${athleteName(latest)} reached ${total} ${total === 1 ? 'class/check-in' : 'classes/check-ins'}.`
+        date: latestDate,
+        text: `${milestone.icon} ${athleteName(latest)} ${milestone.blurb}`
       })
     }
   })
@@ -223,8 +224,19 @@ export default function AthleteMomentum({ user, profile }) {
       .order('signed_up_at', { ascending: false })
       .limit(800)
 
+    const { data: recurringAttendance } = await supabase
+      .from('instance_signups')
+      .select(`
+        id,
+        athlete_id,
+        checkin_time,
+        profiles(name),
+        class_instances(instance_date, classes(title, is_247))
+      `)
+      .limit(800)
+
     setSetLogs(logs || [])
-    setSignups(attendance || [])
+    setSignups(normalizeAttendance(attendance || [], recurringAttendance || []))
     setLoading(false)
   }
 
@@ -253,7 +265,7 @@ export default function AthleteMomentum({ user, profile }) {
     const mySignups = signups.filter(row => row.athlete_id === user?.id)
 
     const weeklyLogs = myLogs.filter(row => isThisWeek(row.created_at))
-    const weeklySignups = mySignups.filter(row => isThisWeek(row.classes?.start_time || row.signed_up_at))
+    const weeklySignups = mySignups.filter(row => isThisWeek(attendanceDate(row)))
     const weeklyPrs = buildPrWins(myLogs).filter(w => isThisWeek(w.date))
 
     const weightedLogs = weeklyLogs
@@ -263,8 +275,8 @@ export default function AthleteMomentum({ user, profile }) {
     const biggest = weightedLogs[0]
 
     return {
-      classes: weeklySignups.filter(s => !s.classes?.is_247).length,
-      checkins: weeklySignups.filter(s => s.classes?.is_247).length,
+      classes: classAttendanceRows(weeklySignups).length,
+      checkins: weeklySignups.filter(s => s.is_247 || s.classes?.is_247).length,
       logs: weeklyLogs.length,
       prs: weeklyPrs.length,
       biggest: biggest ? `${movementName(biggest)}: ${biggest.value}` : null
