@@ -8,6 +8,21 @@ import { canSeeWorkouts, hasClassAccess, hasPrivateTrainingAccess, isCoach as pr
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
+const STRENGTH_TERMS = [
+  'squat',
+  'deadlift',
+  'press',
+  'bench',
+  'snatch',
+  'clean',
+  'jerk',
+  'pull',
+  'row',
+  'lunge',
+  'hinge',
+  'thruster',
+  'carry'
+]
 
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
 function toISO(d) { return d.toISOString().split('T')[0] }
@@ -63,6 +78,21 @@ function formatSetLogValue(value, made) {
   const clean = (value || '').trim()
   if (!clean) return ''
   return `${clean} - ${made ? 'Made' : 'Miss'}`
+}
+
+function hasStrengthCue(section, movement) {
+  const sectionType = (section?.type || '').toLowerCase()
+  const scoreType = (section?.score_type || '').toLowerCase()
+  const movementName = (movement?.name || '').toLowerCase()
+  const movementNotes = (movement?.notes || '').toLowerCase()
+  const sectionNotes = (section?.notes || '').toLowerCase()
+  const sets = movement?.sets || []
+
+  if (sectionType.includes('strength')) return true
+  if (scoreType.includes('heaviest')) return true
+  if (sets.some(set => (set.load || '').includes('%') || set.rpe)) return true
+  if (/%|1rm|one rep max|percent/.test(`${movementNotes} ${sectionNotes}`)) return true
+  return STRENGTH_TERMS.some(term => movementName.includes(term))
 }
 
 export default function Workouts({ user, profile }) {
@@ -430,10 +460,41 @@ export default function Workouts({ user, profile }) {
   }
 
   const getStrengthMovements = (workout) => {
-    const sections = workout.workout_sections || []
-    const strengthSecs = sections.filter(s => s.score_type === 'Heaviest Set')
-    const target = strengthSecs.length > 0 ? strengthSecs : sections
-    return target.flatMap(s => (s.movements || []).map(m => ({ name: m.name, sets: m.sets || [] }))).filter(m => m.name)
+    const sections = [...(workout.workout_sections || [])].sort((a, b) => a.order_index - b.order_index)
+    const seen = new Set()
+    const strengthMovements = []
+
+    sections.forEach(section => {
+      ;[...(section.movements || [])]
+        .sort((a, b) => a.order_index - b.order_index)
+        .forEach(movement => {
+          const sets = [...(movement.sets || [])].sort((a, b) => a.order_index - b.order_index)
+          if (!movement.name || !sets.length || !hasStrengthCue(section, { ...movement, sets })) return
+
+          const key = `${movement.name.toLowerCase()}-${section.id}`
+          if (seen.has(key)) return
+          seen.add(key)
+
+          strengthMovements.push({
+            name: movement.name,
+            sectionType: section.type,
+            sets
+          })
+        })
+    })
+
+    if (strengthMovements.length) return strengthMovements
+
+    return sections
+      .flatMap(section => [...(section.movements || [])]
+        .sort((a, b) => a.order_index - b.order_index)
+        .map(movement => ({
+          name: movement.name,
+          sectionType: section.type,
+          sets: [...(movement.sets || [])].sort((a, b) => a.order_index - b.order_index)
+        }))
+      )
+      .filter(movement => movement.name && movement.sets.length)
   }
 
   return (
