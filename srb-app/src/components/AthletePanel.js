@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { getAccessStatus, MEMBERSHIP_CLASS, MEMBERSHIP_TYPES } from '../utils/access'
+import { attendanceDate, classAttendanceCount, earnedClassAchievements, isAttendanceCheckedIn, nextClassAchievement, normalizeAttendance } from '../utils/achievements'
 
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 
@@ -37,8 +38,13 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
         .select('*, classes(title, start_time, is_247)')
         .eq('athlete_id', athleteId)
         .order('signed_up_at', { ascending: false })
-        .limit(5)
-      setAttendance(att || [])
+
+      const { data: recurringAtt } = await supabase
+        .from('instance_signups')
+        .select('id, athlete_id, checkin_time, class_instances(instance_date, classes(title, is_247))')
+        .eq('athlete_id', athleteId)
+
+      setAttendance(normalizeAttendance(att || [], recurringAtt || []))
 
       const { data: waiverData } = await supabase
         .from('waivers')
@@ -60,6 +66,11 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
   }
 
   if (!athleteId) return null
+
+  const totalClasses = classAttendanceCount(attendance)
+  const attendedRows = attendance.filter(isAttendanceCheckedIn)
+  const classAchievements = earnedClassAchievements(attendance)
+  const nextAchievement = nextClassAchievement(attendance)
 
   return (
     <div
@@ -120,12 +131,42 @@ export default function AthletePanel({ athleteId, onClose, onUpdated }) {
             {/* Attendance */}
             <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
               <div style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '10px' }}>Recent Attendance</div>
-              {attendance.length === 0
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <div className="att-stat" style={{ minWidth: '120px', padding: '10px' }}>
+                  <div className="att-val" style={{ fontSize: '22px' }}>{totalClasses}</div>
+                  <div className="att-label">Classes</div>
+                </div>
+                {nextAchievement && (
+                  <div className="achievement-next" style={{ flex: 1, margin: 0 }}>
+                    <span>{nextAchievement.icon}</span>
+                    <div>
+                      <strong>Next: {nextAchievement.title}</strong>
+                      <small>{nextAchievement.count - totalClasses} classes to go</small>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {classAchievements.length > 0 && (
+                <div className="achievement-grid" style={{ marginBottom: '12px' }}>
+                  {classAchievements.map(achievement => (
+                    <div key={achievement.count} className="achievement-card">
+                      <div className="achievement-icon">{achievement.icon}</div>
+                      <div>
+                        <div className="achievement-title">{achievement.title}</div>
+                        <div className="achievement-sub">{achievement.count} classes attended</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {attendedRows.length === 0
                 ? <p style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>No classes attended yet.</p>
-                : attendance.map((a, i) => (
+                : attendedRows.slice(0, 5).map((a, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(200,169,106,0.06)', fontSize: '13px' }}>
-                    <span style={{ color: 'var(--bone)' }}>{a.classes?.is_247 ? '24/7 Access' : a.classes?.title}</span>
-                    <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>{a.classes?.start_time ? new Date(a.classes.start_time).toLocaleDateString() : new Date(a.signed_up_at).toLocaleDateString()}</span>
+                    <span style={{ color: 'var(--bone)' }}>{a.is_247 || a.classes?.is_247 ? '24/7 Access' : a.attendance_title || a.classes?.title || 'Class'}</span>
+                    <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>{attendanceDate(a) ? new Date(attendanceDate(a)).toLocaleDateString() : ''}</span>
                   </div>
                 ))
               }
