@@ -152,7 +152,11 @@ export default function PrepareModal({ workout, movements, user, onClose }) {
             <div className="field" style={{ marginBottom: '1.25rem' }}>
               <label>Movement</label>
               <select value={selectedIdx} onChange={e => { setSelectedIdx(parseInt(e.target.value)); setMw(''); setMr('1') }}>
-                {movements.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+                {movements.map((m, i) => (
+                  <option key={i} value={i}>
+                    {m.sectionType ? `${m.name} — ${m.sectionType}` : m.name}
+                  </option>
+                ))}
               </select>
             </div>
           )}
