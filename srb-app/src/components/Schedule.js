@@ -293,7 +293,9 @@ export default function Schedule({ user, profile }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: '🏋️ Open Gym Check-In',
-          body: `${athleteName} was checked in by coach at ${checkinTime}`
+          body: `${athleteName} was checked in by coach at ${checkinTime}`,
+          badgeCount: 1,
+          tag: 'srb-open-gym'
         })
       }).catch(err => console.error('Push notify error:', err))
       showToast(athleteName + ' checked in!')
@@ -319,7 +321,9 @@ export default function Schedule({ user, profile }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: '🏋️ Open Gym Check-In',
-          body: `${profile?.name || 'An athlete'} checked in at ${checkinTime}`
+          body: `${profile?.name || 'An athlete'} checked in at ${checkinTime}`,
+          badgeCount: 1,
+          tag: 'srb-open-gym'
         })
       }).catch(err => console.error('Push notify error:', err))
       showToast(`Checked in for ${checkinTime} — Sarah has been notified!`)
