@@ -106,7 +106,7 @@ export default function PostWorkout({ user, onPosted }) {
     for (let si = 0; si < secs.length; si++) {
       const sec = secs[si]
       const validMovs = sec.movements.filter(m => m.name.trim())
-      if (!validMovs.length) continue
+      if (!validMovs.length && !sec.notes.trim()) continue
       const { data: section } = await supabase
         .from('workout_sections')
         .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
