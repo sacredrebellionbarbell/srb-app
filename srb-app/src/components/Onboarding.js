@@ -3,12 +3,38 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import WaiverForm from './WaiverForm'
 import MemberAgreement from './MemberAgreement'
+import { isFreeTrial, isPaidMember } from '../utils/access'
+import { notifyCoach } from '../utils/notifyCoach'
 
 const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
 const FOUNDING_STRIPE_TABLE_ID = process.env.REACT_APP_FOUNDING_PRICING_TABLE_ID
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 
+const STEP_DEFS = {
+  subscription: { id: 'subscription', title: 'Get Your Free Week', description: 'Start your 3-class free trial', icon: '💳' },
+  waiver: { id: 'waiver', title: 'Liability Waiver', description: 'Read and sign the SRB liability waiver', icon: '📋' },
+  agreement: { id: 'agreement', title: 'Member Agreement', description: 'Required once you become a paid member', icon: '🤝' },
+  profile: { id: 'profile', title: 'Complete Your Profile', description: 'Add your name and contact info', icon: '👤' },
+  tutorial: { id: 'tutorial', title: 'Get Oriented', description: 'A quick tour of your app', icon: '🗺️' }
+}
+
+const DEFAULT_STEPS = [
+  STEP_DEFS.profile,
+  STEP_DEFS.waiver,
+  STEP_DEFS.subscription,
+  STEP_DEFS.agreement,
+  STEP_DEFS.tutorial
+]
+
+const FREE_WEEK_STEPS = [
+  STEP_DEFS.subscription,
+  STEP_DEFS.profile,
+  STEP_DEFS.waiver,
+  STEP_DEFS.tutorial
+]
+
+/*
 const STEPS = [
   { id: 'waiver', title: 'Liability Waiver', description: 'Read and sign the SRB liability waiver', icon: '📋' },
   { id: 'agreement', title: 'Member Agreement', description: 'Read and sign the member agreement', icon: '🤝' },
@@ -16,6 +42,7 @@ const STEPS = [
   { id: 'profile', title: 'Complete Your Profile', description: 'Add your name and contact info', icon: '👤' },
   { id: 'tutorial', title: 'Get Oriented', description: 'A quick tour of your app', icon: '🗺️' },
 ]
+*/
 
 const TUTORIAL_SLIDES = [
   {
@@ -51,7 +78,11 @@ const TUTORIAL_SLIDES = [
 ]
 
 export default function Onboarding({ user, profile, onComplete }) {
-  const [activeStep, setActiveStep] = useState(null)
+  const pendingOffer = (() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('offer') === 'free-week' || params.get('signup') === 'free-week' || localStorage.getItem('srb_pending_offer') === 'free-week'
+  })()
+  const [activeStep, setActiveStep] = useState(pendingOffer && (!profile?.membership_type || profile.membership_type === 'None') ? 'subscription' : null)
   const [tutorialSlide, setTutorialSlide] = useState(0)
   const [profileName, setProfileName] = useState(profile?.name || '')
   const [profilePhone, setProfilePhone] = useState(profile?.phone || '')
@@ -59,6 +90,9 @@ export default function Onboarding({ user, profile, onComplete }) {
   const [savingFounding, setSavingFounding] = useState(false)
   const [currentProfile, setCurrentProfile] = useState(profile)
   const [checking, setChecking] = useState(false)
+  const isTrialPath = pendingOffer || isFreeTrial(currentProfile)
+  const requiresMemberAgreement = isPaidMember(currentProfile)
+  const steps = isTrialPath && !requiresMemberAgreement ? FREE_WEEK_STEPS : DEFAULT_STEPS
 
   useEffect(() => {
     if (activeStep !== 'subscription') return
@@ -75,7 +109,7 @@ export default function Onboarding({ user, profile, onComplete }) {
   const getStepStatus = (stepId) => {
     switch (stepId) {
       case 'waiver': return currentProfile?.waiver_signed ? 'complete' : 'pending'
-      case 'agreement': return currentProfile?.member_agreement_signed ? 'complete' : 'pending'
+      case 'agreement': return !requiresMemberAgreement || currentProfile?.member_agreement_signed ? 'complete' : 'pending'
       case 'subscription': return (currentProfile?.membership_type && currentProfile.membership_type !== 'None') ? 'complete' : 'pending'
       case 'profile': return (currentProfile?.name && currentProfile?.phone) ? 'complete' : 'pending'
       case 'tutorial': return 'pending'
@@ -83,7 +117,7 @@ export default function Onboarding({ user, profile, onComplete }) {
     }
   }
 
-  const allComplete = STEPS.slice(0, 4).every(s => getStepStatus(s.id) === 'complete')
+  const allComplete = steps.filter(s => s.id !== 'tutorial').every(s => getStepStatus(s.id) === 'complete')
 
   const saveProfile = async () => {
     if (!profileName.trim() || !profilePhone.trim()) return
@@ -107,6 +141,17 @@ export default function Onboarding({ user, profile, onComplete }) {
 
     if (!error) {
       setCurrentProfile(prev => ({ ...prev, ...updates }))
+      localStorage.removeItem('srb_pending_offer')
+      await supabase.from('notifications').insert({
+        message: `${currentProfile?.name || profileName || user.email || 'A new athlete'} started a free week trial.`,
+        type: 'free_trial_signup',
+        athlete_id: user.id
+      })
+      await notifyCoach(
+        'New Free Week Started',
+        `${currentProfile?.name || profileName || user.email || 'A new athlete'} started a 3-class free trial.`,
+        { badgeCount: 1, tag: 'srb-free-trial' }
+      )
       setActiveStep(null)
     }
 
@@ -130,8 +175,8 @@ export default function Onboarding({ user, profile, onComplete }) {
   const handleStepClick = (stepId) => {
     if (activeStep === stepId) { setActiveStep(null); return }
 
-    const stepIndex = STEPS.findIndex(s => s.id === stepId)
-    const allPriorComplete = STEPS.slice(0, stepIndex).every(s => getStepStatus(s.id) === 'complete')
+    const stepIndex = steps.findIndex(s => s.id === stepId)
+    const allPriorComplete = steps.slice(0, stepIndex).every(s => getStepStatus(s.id) === 'complete')
     if (!allPriorComplete) return
 
     setActiveStep(stepId)
@@ -183,15 +228,18 @@ export default function Onboarding({ user, profile, onComplete }) {
           </div>
           <div style={{ width: '40px', height: '1px', background: 'var(--gold)', margin: '0 auto 1rem', opacity: 0.5 }} />
           <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.7 }}>
-            Create your account, sign the required documents, choose your access, and complete your profile.
+            {isTrialPath
+              ? 'Start your free week, complete your profile, sign the waiver, and book up to 3 classes.'
+              : 'Create your account, sign the required documents, choose your access, and complete your profile.'
+            }
           </p>
         </div>
 
-        {STEPS.map((step) => {
+        {steps.map((step) => {
           const status = getStepStatus(step.id)
           const isActive = activeStep === step.id
-          const stepIndex = STEPS.findIndex(s => s.id === step.id)
-          const allPriorComplete = STEPS.slice(0, stepIndex).every(s => getStepStatus(s.id) === 'complete')
+          const stepIndex = steps.findIndex(s => s.id === step.id)
+          const allPriorComplete = steps.slice(0, stepIndex).every(s => getStepStatus(s.id) === 'complete')
           const isLocked = !allPriorComplete && status !== 'complete'
 
           return (
@@ -243,7 +291,10 @@ export default function Onboarding({ user, profile, onComplete }) {
                   {step.id === 'subscription' && (
                     <div>
                       <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '1.5rem', lineHeight: 1.7 }}>
-                        Choose a free trial if you want to try three classes first, or reserve your founding membership below.
+                        {isTrialPath
+                          ? 'Try up to 3 classes during your free week. After that, you can activate a membership to keep training.'
+                          : 'Choose a free trial if you want to try three classes first, or reserve your founding membership below.'
+                        }
                       </p>
 
                       <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginBottom: '1rem' }}>
@@ -254,60 +305,64 @@ export default function Onboarding({ user, profile, onComplete }) {
                           Try up to 3 classes. Trial access does not include programming, leaderboards, open gym, or member-only features.
                         </p>
                         <button className="btn-primary" onClick={startFreeTrial} disabled={savingFounding}>
-                          {savingFounding ? 'Saving...' : 'Start Free Trial'}
+                          {savingFounding ? 'Saving...' : 'Start My Free Week'}
                         </button>
                       </div>
 
-                      {checking && (
+                      {!isTrialPath && checking && (
                         <div style={{ fontSize: '13px', color: 'var(--gold-light)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span>⏳</span> Checking membership status...
                         </div>
                       )}
 
-                      {FOUNDING_STRIPE_TABLE_ID ? (
-                        <div style={{ marginBottom: '1rem' }}>
-                          <stripe-pricing-table pricing-table-id={FOUNDING_STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
-                        </div>
-                      ) : (
+                      {!isTrialPath && (
                         <>
-                          <div style={{ marginBottom: '1rem' }}>
-                            <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
-                          </div>
-                          {STRIPE_TABLE_ID_2 && (
-                            <div>
-                              <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID_2} publishable-key={STRIPE_PK} customer-email={user.email} />
+                          {FOUNDING_STRIPE_TABLE_ID ? (
+                            <div style={{ marginBottom: '1rem' }}>
+                              <stripe-pricing-table pricing-table-id={FOUNDING_STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
                             </div>
+                          ) : (
+                            <>
+                              <div style={{ marginBottom: '1rem' }}>
+                                <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID} publishable-key={STRIPE_PK} customer-email={user.email} />
+                              </div>
+                              {STRIPE_TABLE_ID_2 && (
+                                <div>
+                                  <stripe-pricing-table pricing-table-id={STRIPE_TABLE_ID_2} publishable-key={STRIPE_PK} customer-email={user.email} />
+                                </div>
+                              )}
+                            </>
                           )}
+
+                          <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginTop: '1rem' }}>
+                            <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>
+                              Finished Stripe Preregistration?
+                            </div>
+                            <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', lineHeight: 1.6, marginBottom: '12px' }}>
+                              After you complete the $0 Founding Membership preregistration in Stripe, tap below to unlock the rest of onboarding.
+                            </p>
+                            <button className="btn-primary" onClick={markFoundingPreregistered} disabled={savingFounding}>
+                              {savingFounding ? 'Saving...' : 'I Completed Founding Preregistration'}
+                            </button>
+                          </div>
+
+                          <button
+                            className="btn-ghost"
+                            style={{ fontSize: '11px', marginTop: '1rem' }}
+                            onClick={async () => {
+                              setChecking(true)
+                              const { data } = await supabase.from('profiles').select('membership_type, active_products, founding_preregistration_completed, founding_preregistered_at').eq('id', user.id).single()
+                              if (data?.membership_type && data.membership_type !== 'None') {
+                                setCurrentProfile(prev => ({ ...prev, ...data }))
+                                setActiveStep(null)
+                              }
+                              setChecking(false)
+                            }}
+                          >
+                            Already completed? Click to check →
+                          </button>
                         </>
                       )}
-
-                      <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginTop: '1rem' }}>
-                        <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>
-                          Finished Stripe Preregistration?
-                        </div>
-                        <p style={{ fontSize: '13px', color: 'var(--charcoal-light)', lineHeight: 1.6, marginBottom: '12px' }}>
-                          After you complete the $0 Founding Membership preregistration in Stripe, tap below to unlock the rest of onboarding.
-                        </p>
-                        <button className="btn-primary" onClick={markFoundingPreregistered} disabled={savingFounding}>
-                          {savingFounding ? 'Saving...' : 'I Completed Founding Preregistration'}
-                        </button>
-                      </div>
-
-                      <button
-                        className="btn-ghost"
-                        style={{ fontSize: '11px', marginTop: '1rem' }}
-                        onClick={async () => {
-                          setChecking(true)
-                          const { data } = await supabase.from('profiles').select('membership_type, active_products, founding_preregistration_completed, founding_preregistered_at').eq('id', user.id).single()
-                          if (data?.membership_type && data.membership_type !== 'None') {
-                            setCurrentProfile(prev => ({ ...prev, ...data }))
-                            setActiveStep(null)
-                          }
-                          setChecking(false)
-                        }}
-                      >
-                        Already completed? Click to check →
-                      </button>
                     </div>
                   )}
 
