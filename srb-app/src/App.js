@@ -16,6 +16,7 @@ import Leads from './components/Leads'
 import Programs from './components/Programs'
 import AthleteMomentum from './components/AthleteMomentum'
 import SheetImport from './components/SheetImport'
+import { isPaidMember } from './utils/access'
 
 function KioskWrapper() {
   if (window.location.pathname === '/kiosk') return <Kiosk />
@@ -32,6 +33,7 @@ function AppMain() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {})
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) fetchProfile(session.user.id)
@@ -70,7 +72,7 @@ function AppMain() {
 
   const needsOnboarding = profile && profile.role !== 'coach' && (
     !profile.waiver_signed ||
-    !profile.member_agreement_signed ||
+    (isPaidMember(profile) && !profile.member_agreement_signed) ||
     !profile.membership_type ||
     profile.membership_type === 'None' ||
     !profile.name ||
