@@ -10,7 +10,7 @@ webpush.setVapidDetails(
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { title, body, userId } = req.body
+  const { title, body, userId, badgeCount = 1, tag = 'srb-alert' } = req.body
   if (!title || !body) return res.status(400).json({ error: 'Missing title or body' })
 
   const supabase = createClient(
@@ -43,8 +43,9 @@ export default async function handler(req, res) {
       body,
       icon: '/logo.jpg',
       badge: '/logo.jpg',
-      tag: 'srb-checkin',
-      renotify: true
+      tag,
+      renotify: true,
+      badgeCount
     })
 
     const results = await Promise.allSettled(
