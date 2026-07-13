@@ -257,7 +257,7 @@ export default function Workouts({ user, profile }) {
 
     const { data } = await query
     setWorkouts(data || [])
-    if (data?.length > 0) setExpandedId(data[0].id)
+    setExpandedId(null)
     setLoading(false)
   }, [currentDate, hasWorkoutAccess, isCoach, profile, profile?.membership_type, user.id])
 
@@ -317,9 +317,9 @@ export default function Workouts({ user, profile }) {
   }, [isCoach, selectedTrack, trackOptions])
 
   useEffect(() => {
-    if (!visibleWorkouts.length) return
+    if (!expandedId) return
     if (!visibleWorkouts.some(workout => workout.id === expandedId)) {
-      setExpandedId(visibleWorkouts[0].id)
+      setExpandedId(null)
     }
   }, [expandedId, visibleWorkouts])
 
