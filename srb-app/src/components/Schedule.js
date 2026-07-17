@@ -31,6 +31,8 @@ const CHECKIN_TIMES = [
   '4:00 PM','4:30 PM','5:00 PM','5:30 PM','6:00 PM','6:30 PM','7:00 PM',
   '7:30 PM','8:00 PM','8:30 PM','9:00 PM'
 ]
+const DEFAULT_OPEN_GYM_DURATION = 30
+const DEFAULT_OPEN_GYM_CAPACITY = 1
 
 function timeInputToLabel(value) {
   if (!value) return ''
@@ -55,6 +57,30 @@ function inputTimeToMinutes(value) {
   if (!value) return null
   const [h, m] = value.split(':')
   return parseInt(h, 10) * 60 + parseInt(m, 10)
+}
+
+function minutesToInputTime(minutes) {
+  const hour = Math.floor(minutes / 60)
+  const minute = minutes % 60
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function defaultOpenGymSlots() {
+  return CHECKIN_TIMES.map(label => {
+    const startMinutes = labelToMinutes(label)
+    const startTime = minutesToInputTime(startMinutes)
+    return {
+      id: `default-${startTime}`,
+      slot_key: `default-${startTime}`,
+      start_time: startTime,
+      duration_minutes: DEFAULT_OPEN_GYM_DURATION,
+      capacity: DEFAULT_OPEN_GYM_CAPACITY,
+      recurrence_days: DAYS.join(','),
+      notes: '',
+      active: true,
+      defaultSlot: true
+    }
+  })
 }
 
 function classWindow(cls, isoDate) {
@@ -425,11 +451,13 @@ export default function Schedule({ user, profile }) {
   const allClasses = [...oneTimeClasses, ...recurringClasses]
   const todaysClassWindows = allClasses.map(cls => classWindow(cls, iso)).filter(Boolean)
   const todaysBlocks = openGymBlocks.filter(block => rowRepeatsToday(block, dayOfWeek, iso))
-  const openGymSlotsToday = openGymSlots
+  const openGymSlotsToday = [...defaultOpenGymSlots(), ...openGymSlots]
     .filter(slot => rowRepeatsToday(slot, dayOfWeek, iso))
     .map(slot => {
       const window = slotWindow(slot)
-      const bookings = openGymBookings.filter(booking => booking.slot_id === slot.id)
+      const bookings = openGymBookings.filter(booking =>
+        slot.defaultSlot ? booking.slot_key === slot.slot_key : booking.slot_id === slot.id
+      )
       const conflictingClass = todaysClassWindows.some(classTime => windowsOverlap(window, classTime))
       const conflictingBlock = todaysBlocks.some(block => windowsOverlap(window, slotWindow(block)))
       const unavailableReason = conflictingClass ? 'Class/private coaching time' : conflictingBlock ? 'Blocked by coach' : ''
@@ -442,11 +470,20 @@ export default function Schedule({ user, profile }) {
     if (slot.unavailable) { showToast('That Open Gym time is not available.'); return }
     if ((slot.bookings?.length || 0) >= (slot.capacity || 1)) { showToast('That Open Gym time is full.'); return }
 
-    const { error } = await supabase.from('open_gym_bookings').insert({
-      slot_id: slot.id,
+    const bookingPayload = {
       athlete_id: user.id,
       booking_date: iso
-    })
+    }
+
+    if (slot.defaultSlot) {
+      bookingPayload.slot_key = slot.slot_key
+      bookingPayload.slot_start_time = slot.start_time
+      bookingPayload.slot_duration_minutes = slot.duration_minutes
+    } else {
+      bookingPayload.slot_id = slot.id
+    }
+
+    const { error } = await supabase.from('open_gym_bookings').insert(bookingPayload)
 
     if (error) {
       showToast('Already booked')
@@ -470,6 +507,10 @@ export default function Schedule({ user, profile }) {
 
   const removeOpenGymSlot = async (slotId) => {
     if (!isCoach) return
+    if (String(slotId).startsWith('default-')) {
+      showToast('Default Open Gym times are removed by blocking time.')
+      return
+    }
     await supabase.from('open_gym_slots').update({ active: false }).eq('id', slotId)
     showToast('Open Gym slot removed')
     fetchOpenGym()
@@ -753,7 +794,7 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
     return (
       <div className="class-247">
         <div className="class-247-title">Open Gym</div>
-        <div className="class-247-note">
+          <div className="class-247-note">
           Open Gym scheduling needs the new database tables installed. Until then, the older check-in flow above still works.
         </div>
       </div>
@@ -765,12 +806,12 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
       <div className="class-card-header">
         <div>
           <div className="class-247-title">Open Gym</div>
-          <div className="class-247-note">Book an available training window. Open Gym disappears when it overlaps class or blocked coaching time.</div>
+          <div className="class-247-note">Open Gym is available by default. It disappears only when it overlaps class time or a coach block.</div>
         </div>
         {isCoach && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button className="btn-sm" onClick={() => setShowSlotForm(!showSlotForm)}>+ Open Gym Slot</button>
-            <button className="btn-ghost" onClick={() => setShowBlockForm(!showBlockForm)}>Block Time</button>
+            <button className="btn-sm" onClick={() => setShowBlockForm(!showBlockForm)}>Block Time</button>
+            <button className="btn-ghost" onClick={() => setShowSlotForm(!showSlotForm)}>Extra Slot</button>
           </div>
         )}
       </div>
@@ -792,7 +833,7 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
       {slots.length === 0 && (
         <div className="empty" style={{ margin: '0.75rem 0 0', padding: '1rem' }}>
           <h3>No Open Gym windows today</h3>
-          <p>{isCoach ? 'Add recurring Open Gym slots above, or unblock a coaching conflict.' : 'No Open Gym times are available today.'}</p>
+          <p>{isCoach ? 'All default Open Gym windows are blocked by classes or coach blocks.' : 'No Open Gym times are available today.'}</p>
         </div>
       )}
 
@@ -806,7 +847,8 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
               <div className="open-gym-time">{timeInputToLabel(slot.start_time)} · {slot.duration_minutes} min</div>
               <div className="open-gym-meta">
                 {slot.unavailable ? slot.unavailableReason : `${spots} spot${spots !== 1 ? 's' : ''} open`}
-                {slot.recurrence_days && ` · ${slot.recurrence_days.split(',').join(' · ')}`}
+                {!slot.defaultSlot && slot.recurrence_days && ` · ${slot.recurrence_days.split(',').join(' · ')}`}
+                {slot.defaultSlot && ' · Default availability'}
               </div>
               {slot.notes && <div className="open-gym-notes">{slot.notes}</div>}
               {isCoach && slot.bookings?.length > 0 && (
@@ -821,7 +863,7 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
               )}
             </div>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {isCoach && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
+              {isCoach && !slot.defaultSlot && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
               {!isCoach && myBooking && <button className="btn-ghost" onClick={() => onCancelBooking(myBooking.id)}>Cancel</button>}
               {!isCoach && !myBooking && (
                 <button className="btn-sm" onClick={() => onBook(slot)} disabled={!canUsePaidClassAccess || slot.unavailable || full}>
