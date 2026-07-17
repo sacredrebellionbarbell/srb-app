@@ -32,6 +32,59 @@ const CHECKIN_TIMES = [
   '7:30 PM','8:00 PM','8:30 PM','9:00 PM'
 ]
 
+function timeInputToLabel(value) {
+  if (!value) return ''
+  const [h, m] = value.split(':')
+  const hr = parseInt(h, 10)
+  return `${hr > 12 ? hr - 12 : hr === 0 ? 12 : hr}:${m} ${hr >= 12 ? 'PM' : 'AM'}`
+}
+
+function labelToMinutes(value) {
+  if (!value) return null
+  const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (!match) return null
+  let hour = parseInt(match[1], 10)
+  const minute = parseInt(match[2], 10)
+  const period = match[3].toUpperCase()
+  if (period === 'PM' && hour !== 12) hour += 12
+  if (period === 'AM' && hour === 12) hour = 0
+  return hour * 60 + minute
+}
+
+function inputTimeToMinutes(value) {
+  if (!value) return null
+  const [h, m] = value.split(':')
+  return parseInt(h, 10) * 60 + parseInt(m, 10)
+}
+
+function classWindow(cls, isoDate) {
+  if (cls.start_time) {
+    const start = new Date(cls.start_time)
+    return { start: start.getHours() * 60 + start.getMinutes(), end: start.getHours() * 60 + start.getMinutes() + (cls.duration_minutes || 60) }
+  }
+  const start = labelToMinutes(cls.recurrence_time)
+  if (start == null) return null
+  return { start, end: start + (cls.duration_minutes || 60), label: cls.recurrence_time, date: isoDate }
+}
+
+function slotWindow(row) {
+  const start = inputTimeToMinutes(row.start_time)
+  if (start == null) return null
+  return { start, end: start + (row.duration_minutes || 60) }
+}
+
+function windowsOverlap(a, b) {
+  if (!a || !b) return false
+  return a.start < b.end && b.start < a.end
+}
+
+function rowRepeatsToday(row, dayOfWeek, isoDate) {
+  if (!row.active && row.active !== undefined) return false
+  if (row.slot_date || row.block_date) return (row.slot_date || row.block_date) === isoDate
+  const days = (row.recurrence_days || '').split(',').map(d => d.trim()).filter(Boolean)
+  return days.includes(dayOfWeek)
+}
+
 export default function Schedule({ user, profile }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [oneTimeClasses, setOneTimeClasses] = useState([])
@@ -46,6 +99,12 @@ export default function Schedule({ user, profile }) {
   const [toast, setToast] = useState(null)
   const [athletePanel, setAthletePanel] = useState(null)
   const [trialUses, setTrialUses] = useState(0)
+  const [openGymSlots, setOpenGymSlots] = useState([])
+  const [openGymBookings, setOpenGymBookings] = useState([])
+  const [openGymBlocks, setOpenGymBlocks] = useState([])
+  const [showOpenGymSlotForm, setShowOpenGymSlotForm] = useState(false)
+  const [showOpenGymBlockForm, setShowOpenGymBlockForm] = useState(false)
+  const [openGymAvailable, setOpenGymAvailable] = useState(true)
   const isCoach = profileIsCoach(profile)
   const isTrial = isFreeTrial(profile)
   const { permission, subscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(user)
@@ -120,6 +179,37 @@ export default function Schedule({ user, profile }) {
     setLoading(false)
   }, [currentDate, iso, dayOfWeek])
 
+  const fetchOpenGym = useCallback(async () => {
+    const { data: slots, error: slotsError } = await supabase
+      .from('open_gym_slots')
+      .select('*')
+      .eq('active', true)
+      .order('start_time', { ascending: true })
+
+    const { data: bookings, error: bookingsError } = await supabase
+      .from('open_gym_bookings')
+      .select('*, profiles(name, avatar_url)')
+      .eq('booking_date', iso)
+
+    const { data: blocks, error: blocksError } = await supabase
+      .from('open_gym_blocks')
+      .select('*')
+      .eq('active', true)
+
+    if (slotsError || bookingsError || blocksError) {
+      setOpenGymAvailable(false)
+      setOpenGymSlots([])
+      setOpenGymBookings([])
+      setOpenGymBlocks([])
+      return
+    }
+
+    setOpenGymAvailable(true)
+    setOpenGymSlots(slots || [])
+    setOpenGymBookings(bookings || [])
+    setOpenGymBlocks(blocks || [])
+  }, [iso])
+
   const fetchTrialUses = useCallback(async () => {
     if (!isTrial || !user?.id) {
       setTrialUses(0)
@@ -141,6 +231,7 @@ export default function Schedule({ user, profile }) {
   }, [isTrial, user?.id])
 
   useEffect(() => { fetchClasses() }, [fetchClasses])
+  useEffect(() => { fetchOpenGym() }, [fetchOpenGym])
   useEffect(() => { fetchTrialUses() }, [fetchTrialUses])
 
   useEffect(() => {
@@ -332,6 +423,57 @@ export default function Schedule({ user, profile }) {
   }
 
   const allClasses = [...oneTimeClasses, ...recurringClasses]
+  const todaysClassWindows = allClasses.map(cls => classWindow(cls, iso)).filter(Boolean)
+  const todaysBlocks = openGymBlocks.filter(block => rowRepeatsToday(block, dayOfWeek, iso))
+  const openGymSlotsToday = openGymSlots
+    .filter(slot => rowRepeatsToday(slot, dayOfWeek, iso))
+    .map(slot => {
+      const window = slotWindow(slot)
+      const bookings = openGymBookings.filter(booking => booking.slot_id === slot.id)
+      const conflictingClass = todaysClassWindows.some(classTime => windowsOverlap(window, classTime))
+      const conflictingBlock = todaysBlocks.some(block => windowsOverlap(window, slotWindow(block)))
+      const unavailableReason = conflictingClass ? 'Class/private coaching time' : conflictingBlock ? 'Blocked by coach' : ''
+      return { ...slot, window, bookings, unavailable: conflictingClass || conflictingBlock, unavailableReason }
+    })
+
+  const bookOpenGymSlot = async (slot) => {
+    if (!canUsePaidClassAccess) { showToast('Open gym access is for active members only.'); return }
+    if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
+    if (slot.unavailable) { showToast('That Open Gym time is not available.'); return }
+    if ((slot.bookings?.length || 0) >= (slot.capacity || 1)) { showToast('That Open Gym time is full.'); return }
+
+    const { error } = await supabase.from('open_gym_bookings').insert({
+      slot_id: slot.id,
+      athlete_id: user.id,
+      booking_date: iso
+    })
+
+    if (error) {
+      showToast('Already booked')
+      return
+    }
+
+    await notifyCoach(
+      'Open Gym Booked',
+      `${profile?.name || 'An athlete'} booked Open Gym for ${timeInputToLabel(slot.start_time)} on ${formatDate(currentDate)}.`
+    )
+
+    showToast('Open Gym booked!')
+    fetchOpenGym()
+  }
+
+  const cancelOpenGymBooking = async (bookingId) => {
+    await supabase.from('open_gym_bookings').delete().eq('id', bookingId)
+    showToast('Open Gym booking removed')
+    fetchOpenGym()
+  }
+
+  const removeOpenGymSlot = async (slotId) => {
+    if (!isCoach) return
+    await supabase.from('open_gym_slots').update({ active: false }).eq('id', slotId)
+    showToast('Open Gym slot removed')
+    fetchOpenGym()
+  }
 
   return (
     <div>
@@ -399,6 +541,22 @@ export default function Schedule({ user, profile }) {
           )}
         </div>
       )}
+
+      <OpenGymModule
+        isCoach={isCoach}
+        user={user}
+        canUsePaidClassAccess={canUsePaidClassAccess}
+        openGymAvailable={openGymAvailable}
+        slots={openGymSlotsToday}
+        showSlotForm={showOpenGymSlotForm}
+        setShowSlotForm={setShowOpenGymSlotForm}
+        showBlockForm={showOpenGymBlockForm}
+        setShowBlockForm={setShowOpenGymBlockForm}
+        onBook={bookOpenGymSlot}
+        onCancelBooking={cancelOpenGymBooking}
+        onRemoveSlot={removeOpenGymSlot}
+        onSaved={fetchOpenGym}
+      />
 
       {/* Coach controls */}
       <div className="section-header">
@@ -587,6 +745,209 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
         </div>
       )}
     </>
+  )
+}
+
+function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable, slots, showSlotForm, setShowSlotForm, showBlockForm, setShowBlockForm, onBook, onCancelBooking, onRemoveSlot, onSaved }) {
+  if (!openGymAvailable) {
+    return (
+      <div className="class-247">
+        <div className="class-247-title">Open Gym</div>
+        <div className="class-247-note">
+          Open Gym scheduling needs the new database tables installed. Until then, the older check-in flow above still works.
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="class-247">
+      <div className="class-card-header">
+        <div>
+          <div className="class-247-title">Open Gym</div>
+          <div className="class-247-note">Book an available training window. Open Gym disappears when it overlaps class or blocked coaching time.</div>
+        </div>
+        {isCoach && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button className="btn-sm" onClick={() => setShowSlotForm(!showSlotForm)}>+ Open Gym Slot</button>
+            <button className="btn-ghost" onClick={() => setShowBlockForm(!showBlockForm)}>Block Time</button>
+          </div>
+        )}
+      </div>
+
+      {isCoach && showSlotForm && (
+        <OpenGymSlotForm
+          onSaved={() => { setShowSlotForm(false); onSaved() }}
+          onCancel={() => setShowSlotForm(false)}
+        />
+      )}
+
+      {isCoach && showBlockForm && (
+        <OpenGymBlockForm
+          onSaved={() => { setShowBlockForm(false); onSaved() }}
+          onCancel={() => setShowBlockForm(false)}
+        />
+      )}
+
+      {slots.length === 0 && (
+        <div className="empty" style={{ margin: '0.75rem 0 0', padding: '1rem' }}>
+          <h3>No Open Gym windows today</h3>
+          <p>{isCoach ? 'Add recurring Open Gym slots above, or unblock a coaching conflict.' : 'No Open Gym times are available today.'}</p>
+        </div>
+      )}
+
+      {slots.map(slot => {
+        const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
+        const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
+        const full = spots <= 0
+        return (
+          <div key={slot.id} className="open-gym-slot">
+            <div>
+              <div className="open-gym-time">{timeInputToLabel(slot.start_time)} · {slot.duration_minutes} min</div>
+              <div className="open-gym-meta">
+                {slot.unavailable ? slot.unavailableReason : `${spots} spot${spots !== 1 ? 's' : ''} open`}
+                {slot.recurrence_days && ` · ${slot.recurrence_days.split(',').join(' · ')}`}
+              </div>
+              {slot.notes && <div className="open-gym-notes">{slot.notes}</div>}
+              {isCoach && slot.bookings?.length > 0 && (
+                <div className="open-gym-bookings">
+                  {slot.bookings.map(booking => (
+                    <span key={booking.id}>
+                      {booking.profiles?.name || 'Athlete'}
+                      <button type="button" onClick={() => onCancelBooking(booking.id)}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {isCoach && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
+              {!isCoach && myBooking && <button className="btn-ghost" onClick={() => onCancelBooking(myBooking.id)}>Cancel</button>}
+              {!isCoach && !myBooking && (
+                <button className="btn-sm" onClick={() => onBook(slot)} disabled={!canUsePaidClassAccess || slot.unavailable || full}>
+                  {slot.unavailable ? 'Unavailable' : full ? 'Full' : 'Book'}
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function OpenGymSlotForm({ onSaved, onCancel }) {
+  const [time, setTime] = useState('10:00')
+  const [duration, setDuration] = useState(60)
+  const [capacity, setCapacity] = useState(1)
+  const [notes, setNotes] = useState('')
+  const [recurDays, setRecurDays] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const toggleDay = (day) => setRecurDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  const sortedDays = [...recurDays].sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b))
+
+  const save = async () => {
+    if (sortedDays.length === 0) return
+    setLoading(true)
+    await supabase.from('open_gym_slots').insert({
+      start_time: time,
+      duration_minutes: parseInt(duration, 10),
+      capacity: parseInt(capacity, 10),
+      recurrence_days: sortedDays.join(','),
+      notes: notes.trim(),
+      active: true
+    })
+    setLoading(false)
+    onSaved()
+  }
+
+  return (
+    <div className="open-gym-form">
+      <div className="two-col">
+        <div className="field"><label>Start Time</label><input type="time" value={time} onChange={e => setTime(e.target.value)} /></div>
+        <div className="field"><label>Duration</label><input type="number" value={duration} onChange={e => setDuration(e.target.value)} /></div>
+      </div>
+      <div className="field"><label>Capacity</label><input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} /></div>
+      <div className="field"><label>Repeats On</label><DayPicker selected={recurDays} onToggle={toggleDay} /></div>
+      <div className="field"><label>Notes</label><input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional: Open platform only, no dropping, etc." /></div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button className="btn-sm" onClick={save} disabled={loading || sortedDays.length === 0}>{loading ? 'Saving...' : 'Save Open Gym Slot'}</button>
+        <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function OpenGymBlockForm({ onSaved, onCancel }) {
+  const today = new Date().toISOString().split('T')[0]
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [date, setDate] = useState(today)
+  const [time, setTime] = useState('10:00')
+  const [duration, setDuration] = useState(60)
+  const [reason, setReason] = useState('Private coaching')
+  const [recurDays, setRecurDays] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const toggleDay = (day) => setRecurDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  const sortedDays = [...recurDays].sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b))
+
+  const save = async () => {
+    if (isRecurring && sortedDays.length === 0) return
+    setLoading(true)
+    await supabase.from('open_gym_blocks').insert({
+      block_date: isRecurring ? null : date,
+      start_time: time,
+      duration_minutes: parseInt(duration, 10),
+      recurrence_days: isRecurring ? sortedDays.join(',') : null,
+      reason: reason.trim() || 'Blocked',
+      active: true
+    })
+    setLoading(false)
+    onSaved()
+  }
+
+  return (
+    <div className="open-gym-form">
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button className={!isRecurring ? 'btn-sm' : 'btn-ghost'} onClick={() => setIsRecurring(false)}>One-Time Block</button>
+        <button className={isRecurring ? 'btn-sm' : 'btn-ghost'} onClick={() => setIsRecurring(true)}>Recurring Block</button>
+      </div>
+      {!isRecurring && <div className="field"><label>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>}
+      {isRecurring && <div className="field"><label>Repeats On</label><DayPicker selected={recurDays} onToggle={toggleDay} /></div>}
+      <div className="two-col">
+        <div className="field"><label>Start Time</label><input type="time" value={time} onChange={e => setTime(e.target.value)} /></div>
+        <div className="field"><label>Duration</label><input type="number" value={duration} onChange={e => setDuration(e.target.value)} /></div>
+      </div>
+      <div className="field"><label>Reason</label><input type="text" value={reason} onChange={e => setReason(e.target.value)} placeholder="Private coaching, client session, cleaning..." /></div>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button className="btn-sm" onClick={save} disabled={loading || (isRecurring && sortedDays.length === 0)}>{loading ? 'Saving...' : 'Save Block'}</button>
+        <button className="btn-ghost" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+function DayPicker({ selected, onToggle }) {
+  return (
+    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+      {DAYS.map((day, i) => (
+        <button
+          key={day}
+          onClick={() => onToggle(day)}
+          style={{
+            width: '40px', height: '40px', borderRadius: '50%', border: '1px solid',
+            borderColor: selected.includes(day) ? 'var(--rose)' : 'var(--border)',
+            background: selected.includes(day) ? 'rgba(162,92,107,0.3)' : 'transparent',
+            color: selected.includes(day) ? 'var(--rose-light)' : 'var(--charcoal-light)',
+            cursor: 'pointer', fontSize: '12px', fontFamily: 'Lato, sans-serif',
+            transition: 'all 0.15s'
+          }}
+        >
+          {DAY_LABELS[i]}
+        </button>
+      ))}
+    </div>
   )
 }
 
