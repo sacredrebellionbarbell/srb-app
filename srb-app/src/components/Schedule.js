@@ -25,13 +25,12 @@ function getDayOfWeek(dateStr) {
 }
 
 const CHECKIN_TIMES = [
-  '5:00 AM','5:30 AM','6:00 AM','6:30 AM','7:00 AM','7:30 AM','8:00 AM','8:30 AM',
-  '9:00 AM','9:30 AM','10:00 AM','10:30 AM','11:00 AM','11:30 AM','12:00 PM',
-  '12:30 PM','1:00 PM','1:30 PM','2:00 PM','2:30 PM','3:00 PM','3:30 PM',
-  '4:00 PM','4:30 PM','5:00 PM','5:30 PM','6:00 PM','6:30 PM','7:00 PM',
-  '7:30 PM','8:00 PM','8:30 PM','9:00 PM'
+  '12:00 AM','1:00 AM','2:00 AM','3:00 AM','4:00 AM','5:00 AM',
+  '6:00 AM','7:00 AM','8:00 AM','9:00 AM','10:00 AM','11:00 AM',
+  '12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM',
+  '6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'
 ]
-const DEFAULT_OPEN_GYM_DURATION = 30
+const DEFAULT_OPEN_GYM_DURATION = 60
 const DEFAULT_OPEN_GYM_CAPACITY = 1
 
 function timeInputToLabel(value) {
@@ -528,8 +527,8 @@ export default function Schedule({ user, profile }) {
         <button className="date-nav-btn" onClick={nextDay}>›</button>
       </div>
 
-      {/* 24/7 Access */}
-      {has247 && (isCoach || canUsePaidClassAccess) && (
+      {/* Coach-only 24/7 manual check-in tools */}
+      {has247 && isCoach && (
         <div className="class-247">
           <div className="class-247-title">24/7 Access</div>
           {isCoach ? (
@@ -790,6 +789,18 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
 }
 
 function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable, slots, showSlotForm, setShowSlotForm, showBlockForm, setShowBlockForm, onBook, onCancelBooking, onRemoveSlot, onSaved }) {
+  const [showPicker, setShowPicker] = useState(false)
+  const availableSlots = slots.filter(slot => {
+    const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
+    const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
+    return myBooking || (!slot.unavailable && spots > 0)
+  })
+  const myBookings = slots.flatMap(slot =>
+    (slot.bookings || [])
+      .filter(booking => booking.athlete_id === user.id)
+      .map(booking => ({ ...booking, slot }))
+  )
+
   if (!openGymAvailable) {
     return (
       <div className="class-247">
@@ -806,7 +817,7 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
       <div className="class-card-header">
         <div>
           <div className="class-247-title">Open Gym</div>
-          <div className="class-247-note">Open Gym is available by default. It disappears only when it overlaps class time or a coach block.</div>
+          <div className="class-247-note">Open Gym is available 24/7 unless it overlaps class time or a coach block.</div>
         </div>
         {isCoach && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -837,21 +848,28 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
         </div>
       )}
 
-      {slots.map(slot => {
-        const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
-        const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
-        const full = spots <= 0
-        return (
-          <div key={slot.id} className="open-gym-slot">
-            <div>
-              <div className="open-gym-time">{timeInputToLabel(slot.start_time)} · {slot.duration_minutes} min</div>
-              <div className="open-gym-meta">
-                {slot.unavailable ? slot.unavailableReason : `${spots} spot${spots !== 1 ? 's' : ''} open`}
-                {!slot.defaultSlot && slot.recurrence_days && ` · ${slot.recurrence_days.split(',').join(' · ')}`}
-                {slot.defaultSlot && ' · Default availability'}
-              </div>
-              {slot.notes && <div className="open-gym-notes">{slot.notes}</div>}
-              {isCoach && slot.bookings?.length > 0 && (
+      {!isCoach && (
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn-sm" onClick={() => setShowPicker(true)} disabled={!canUsePaidClassAccess || availableSlots.length === 0}>
+            Check In for Open Gym
+          </button>
+          {myBookings.map(booking => (
+            <button key={booking.id} className="btn-ghost" onClick={() => onCancelBooking(booking.id)}>
+              Cancel {timeInputToLabel(booking.slot.start_time)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {isCoach && (
+        <div className="open-gym-coach-summary">
+          {slots.filter(slot => !slot.unavailable && (slot.bookings || []).length > 0).length === 0 && (
+            <div className="open-gym-meta">No Open Gym bookings yet today.</div>
+          )}
+          {slots.filter(slot => !slot.unavailable && (slot.bookings || []).length > 0).map(slot => (
+            <div key={slot.id} className="open-gym-slot">
+              <div>
+                <div className="open-gym-time">{timeInputToLabel(slot.start_time)} · {slot.duration_minutes} min</div>
                 <div className="open-gym-bookings">
                   {slot.bookings.map(booking => (
                     <span key={booking.id}>
@@ -860,20 +878,65 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
                     </span>
                   ))}
                 </div>
-              )}
+              </div>
+              {!slot.defaultSlot && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
             </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {isCoach && !slot.defaultSlot && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
-              {!isCoach && myBooking && <button className="btn-ghost" onClick={() => onCancelBooking(myBooking.id)}>Cancel</button>}
-              {!isCoach && !myBooking && (
-                <button className="btn-sm" onClick={() => onBook(slot)} disabled={!canUsePaidClassAccess || slot.unavailable || full}>
-                  {slot.unavailable ? 'Unavailable' : full ? 'Full' : 'Book'}
-                </button>
-              )}
-            </div>
+          ))}
+        </div>
+      )}
+
+      {showPicker && (
+        <OpenGymPickerModal
+          slots={availableSlots}
+          user={user}
+          canUsePaidClassAccess={canUsePaidClassAccess}
+          onBook={async (slot) => {
+            await onBook(slot)
+            setShowPicker(false)
+          }}
+          onCancelBooking={onCancelBooking}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function OpenGymPickerModal({ slots, user, canUsePaidClassAccess, onBook, onCancelBooking, onClose }) {
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal" style={{ maxWidth: '560px' }}>
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">Open Gym</div>
+            <div className="modal-sub">Choose an available one-hour window.</div>
           </div>
-        )
-      })}
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body">
+          {slots.length === 0 && <p className="no-data">No Open Gym times are available today.</p>}
+          <div className="open-gym-slot-list">
+            {slots.map(slot => {
+              const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
+              const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
+              const endMinutes = inputTimeToMinutes(slot.start_time) + (slot.duration_minutes || 60)
+              return (
+                <div key={slot.id} className="open-gym-slot">
+                  <div>
+                    <div className="open-gym-time">{timeInputToLabel(slot.start_time)} - {timeInputToLabel(minutesToInputTime(endMinutes % 1440))}</div>
+                    <div className="open-gym-meta">{spots} spot{spots !== 1 ? 's' : ''} open</div>
+                    {slot.notes && <div className="open-gym-notes">{slot.notes}</div>}
+                  </div>
+                  {myBooking
+                    ? <button className="btn-ghost" onClick={() => onCancelBooking(myBooking.id)}>Cancel</button>
+                    : <button className="btn-sm" onClick={() => onBook(slot)} disabled={!canUsePaidClassAccess}>Check In</button>
+                  }
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
