@@ -228,6 +228,8 @@ body{font-family:'Lato',sans-serif;background:var(--charcoal);color:var(--bone);
 .open-gym-bookings span{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:rgba(245,240,232,0.04);color:var(--bone);font-size:12px;padding:3px 8px;border-radius:2px}
 .open-gym-bookings button{background:transparent;border:none;color:var(--rose-light);cursor:pointer;font-size:14px;line-height:1;padding:0}
 .open-gym-form{background:rgba(255,248,236,0.05);border:1px solid var(--border);border-radius:4px;padding:12px;margin:10px 0}
+.open-gym-slot-list{display:flex;flex-direction:column;gap:8px;max-height:65vh;overflow-y:auto;padding-right:4px}
+.open-gym-coach-summary{margin-top:10px}
 .filter-row{display:flex;gap:6px;margin-bottom:1.5rem;flex-wrap:wrap}
 .filter-btn{background:transparent;border:1px solid var(--border);color:var(--charcoal-light);font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:6px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s}
 .filter-btn.active{border-color:var(--gold);color:var(--gold-light);background:rgba(200,169,106,0.1)}
