@@ -351,13 +351,25 @@ export default function Schedule({ user, profile }) {
 
   const markClassAttendance = async (classId, athleteId, attended) => {
     if (!isCoach || !classId || !athleteId) return
-    const { error } = await supabase
+    const checkin_time = attended ? currentTimeLabel() : null
+    const { data, error } = await supabase
       .from('class_signups')
-      .update({ checkin_time: attended ? currentTimeLabel() : null })
+      .update({ checkin_time })
       .match({ class_id: classId, athlete_id: athleteId })
+      .select('id')
 
     if (error) showToast('Could not update attendance: ' + error.message)
     else {
+      if (attended && (!data || data.length === 0)) {
+        const { error: insertError } = await supabase
+          .from('class_signups')
+          .insert({ class_id: classId, athlete_id: athleteId, checkin_time })
+
+        if (insertError) {
+          showToast('Could not attach attendance to athlete: ' + insertError.message)
+          return
+        }
+      }
       showToast(attended ? 'Marked attended' : 'Attendance removed')
       fetchClasses()
     }
@@ -365,13 +377,25 @@ export default function Schedule({ user, profile }) {
 
   const markInstanceAttendance = async (instanceId, athleteId, attended) => {
     if (!isCoach || !instanceId || !athleteId) return
-    const { error } = await supabase
+    const checkin_time = attended ? currentTimeLabel() : null
+    const { data, error } = await supabase
       .from('instance_signups')
-      .update({ checkin_time: attended ? currentTimeLabel() : null })
+      .update({ checkin_time })
       .match({ instance_id: instanceId, athlete_id: athleteId })
+      .select('id')
 
     if (error) showToast('Could not update attendance: ' + error.message)
     else {
+      if (attended && (!data || data.length === 0)) {
+        const { error: insertError } = await supabase
+          .from('instance_signups')
+          .insert({ instance_id: instanceId, athlete_id: athleteId, checkin_time })
+
+        if (insertError) {
+          showToast('Could not attach attendance to athlete: ' + insertError.message)
+          return
+        }
+      }
       showToast(attended ? 'Marked attended' : 'Attendance removed')
       fetchClasses()
     }
