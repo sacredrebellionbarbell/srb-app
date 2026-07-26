@@ -12,10 +12,10 @@ import WaiverForm from './components/WaiverForm'
 import Onboarding from './components/Onboarding'
 import Kiosk from './components/Kiosk'
 import SupertotalRegistration from './components/SupertotalRegistration'
-import Leads from './components/Leads'
 import Programs from './components/Programs'
 import AthleteMomentum from './components/AthleteMomentum'
 import SheetImport from './components/SheetImport'
+import CommandCenter from './components/CommandCenter'
 import { isPaidMember } from './utils/access'
 
 function KioskWrapper() {
@@ -96,6 +96,7 @@ function AppMain() {
       <Nav user={session.user} profile={profile} tab={tab} setTab={setTab} onLogout={handleLogout} />
       <main className="main">
         <AthleteMomentum user={session.user} profile={profile} />
+        {tab === 'command' && isCoach && <CommandCenter user={session.user} />}
         {tab === 'workouts' && <Workouts user={session.user} profile={profile} />}
         {tab === 'schedule' && <Schedule user={session.user} profile={profile} />}
         {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => {}} />}
@@ -103,7 +104,6 @@ function AppMain() {
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'sheet-import' && isCoach && <SheetImport />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
-        {tab === 'leads' && isCoach && <Leads />}
         {tab === 'shop' && (
           <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
             <div style={{ fontFamily: 'Cinzel, serif', fontSize: '28px', color: 'var(--gold-light)', letterSpacing: '3px', marginBottom: '1rem' }}>SRB Gear</div>
