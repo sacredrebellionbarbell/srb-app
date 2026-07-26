@@ -8,11 +8,11 @@ const NAV_ITEMS = [
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
   { id: 'shop', label: 'Shop', icon: '🛍️', coachOnly: false },
   { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
+  { id: 'command', label: 'Command Center', icon: '⌁', coachOnly: true },
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
   { id: 'sheet-import', label: 'Import Sheet', icon: '📄', coachOnly: true },
   { id: 'crm', label: 'Members', icon: '👥', coachOnly: true },
-  { id: 'leads', label: 'Leads', icon: '🎯', coachOnly: true },
 ]
 
 export default function Nav({ user, profile, tab, setTab, onLogout }) {
