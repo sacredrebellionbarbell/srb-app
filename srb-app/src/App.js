@@ -98,7 +98,7 @@ function AppMain() {
         <AthleteMomentum user={session.user} profile={profile} />
         {tab === 'workouts' && <Workouts user={session.user} profile={profile} />}
         {tab === 'schedule' && <Schedule user={session.user} profile={profile} />}
-        {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => setTab('workouts')} />}
+        {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => {}} />}
         {tab === 'programs' && <Programs user={session.user} profile={profile} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'sheet-import' && isCoach && <SheetImport />}
