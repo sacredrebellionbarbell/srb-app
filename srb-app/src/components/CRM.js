@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import AthletePanel from './AthletePanel'
-import { getAccessStatus, MEMBERSHIP_CLASS, MEMBERSHIP_TYPES } from '../utils/access'
+import { getAccessStatus, isFreeTrial, isPaidMember, MEMBERSHIP_CLASS, MEMBERSHIP_TYPES } from '../utils/access'
 
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
 
@@ -78,6 +78,85 @@ export default function CRM({ user }) {
     showToast('SMS app opened')
   }
 
+  const leads = members.filter(m => m.role !== 'coach' && getAccessStatus(m) === 'Lead')
+  const freeTrials = members.filter(m => m.role !== 'coach' && isFreeTrial(m))
+  const paidMembers = members.filter(m => m.role === 'coach' || isPaidMember(m))
+
+  const renderMemberCard = (m) => (
+    <div key={m.id} className="class-card">
+      <div className="class-card-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {m.avatar_url
+            ? <img src={m.avatar_url} style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--rose)' }} alt="" />
+            : <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', fontSize: '14px', color: 'var(--rose-light)', flexShrink: 0 }}>{initials(m.name)}</div>
+          }
+          <div>
+            <div
+              style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }}
+              onClick={() => setAthletePanel(m.id)}
+            >{m.name || 'Unnamed'}</div>
+            <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '2px' }}>{m.email}</div>
+            {m.phone && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{m.phone}</div>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{getAccessStatus(m)}</span>
+          {m.membership_type && (
+            <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{m.membership_type}</span>
+          )}
+          <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: m.role === 'coach' ? 'var(--gold)' : 'var(--charcoal-light)' }}>{m.role}</span>
+          <button className="btn-ghost" onClick={() => setSelected(selected === m.id ? null : m.id)}>
+            {selected === m.id ? 'Close' : 'Manage'}
+          </button>
+        </div>
+      </div>
+
+      {selected === m.id && (
+        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Membership Type</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {MEMBERSHIP_TYPES.map(t => (
+                <button
+                  key={t}
+                  className={m.membership_type === t ? 'btn-sm' : 'btn-ghost'}
+                  style={{ fontSize: '11px' }}
+                  onClick={() => updateMembership(m.id, t)}
+                >{t}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Role</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button className={m.role === 'athlete' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'athlete')}>Athlete</button>
+              <button className={m.role === 'coach' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'coach')}>Coach</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button className="btn-moss" onClick={() => window.open(`mailto:${m.email}?body=${encodeURIComponent(msgText || '')}`)}>Email</button>
+            {m.phone && <button className="btn-moss" onClick={() => window.open(`sms:${m.phone}&body=${encodeURIComponent(msgText || '')}`)}>Text</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
+  const renderGroup = (title, list, empty, subtitle) => (
+    <div className="panel" style={{ marginBottom: '1.5rem' }}>
+      <div className="class-card-header" style={{ marginBottom: '1rem' }}>
+        <div>
+          <div className="panel-title" style={{ marginBottom: subtitle ? '6px' : 0 }}>{title}</div>
+          {subtitle && <div style={{ color: 'var(--charcoal-light)', fontSize: '13px', lineHeight: 1.5 }}>{subtitle}</div>}
+        </div>
+        <span style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>{list.length}</span>
+      </div>
+      {list.length ? list.map(renderMemberCard) : <div className="no-data">{empty}</div>}
+    </div>
+  )
+
   return (
     <div>
       <div className="section-header">
@@ -112,67 +191,9 @@ export default function CRM({ user }) {
 
       {loading && <div className="loading">Loading...</div>}
 
-      {members.map(m => (
-        <div key={m.id} className="class-card">
-          <div className="class-card-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {m.avatar_url
-                ? <img src={m.avatar_url} style={{ width: 42, height: 42, borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--rose)' }} alt="" />
-                : <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(162,92,107,0.2)', border: '1px solid var(--rose)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Cinzel, serif', fontSize: '14px', color: 'var(--rose-light)', flexShrink: 0 }}>{initials(m.name)}</div>
-              }
-              <div>
-                <div
-                  style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border)' }}
-                  onClick={() => setAthletePanel(m.id)}
-                >{m.name || 'Unnamed'}</div>
-                <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '2px' }}>{m.email}</div>
-                {m.phone && <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>{m.phone}</div>}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{getAccessStatus(m)}</span>
-              {m.membership_type && (
-                <span className={`membership-badge ${MEMBERSHIP_CLASS[m.membership_type] || 'membership-none'}`}>{m.membership_type}</span>
-              )}
-              <span style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', color: m.role === 'coach' ? 'var(--gold)' : 'var(--charcoal-light)' }}>{m.role}</span>
-              <button className="btn-ghost" onClick={() => setSelected(selected === m.id ? null : m.id)}>
-                {selected === m.id ? 'Close' : 'Manage'}
-              </button>
-            </div>
-          </div>
-
-          {selected === m.id && (
-            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-              <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Membership Type</div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {MEMBERSHIP_TYPES.map(t => (
-                    <button
-                      key={t}
-                      className={m.membership_type === t ? 'btn-sm' : 'btn-ghost'}
-                      style={{ fontSize: '11px' }}
-                      onClick={() => updateMembership(m.id, t)}
-                    >{t}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '12px', letterSpacing: '2px', textTransform: 'uppercase', color: 'var(--charcoal-light)', marginBottom: '8px' }}>Role</div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  <button className={m.role === 'athlete' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'athlete')}>Athlete</button>
-                  <button className={m.role === 'coach' ? 'btn-sm' : 'btn-ghost'} style={{ fontSize: '11px' }} onClick={() => updateRole(m.id, 'coach')}>Coach</button>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <button className="btn-moss" onClick={() => window.open(`mailto:${m.email}?body=${encodeURIComponent(msgText || '')}`)}>Email</button>
-                {m.phone && <button className="btn-moss" onClick={() => window.open(`sms:${m.phone}&body=${encodeURIComponent(msgText || '')}`)}>Text</button>}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+      {renderGroup('Leads', leads, 'No lead profiles yet.', 'People who have an account but are not on a free trial or paid membership.')}
+      {renderGroup('Free Trials', freeTrials, 'No active free trials right now.', 'Trial athletes should stay here until they convert or finish their 3 classes.')}
+      {renderGroup('Paid Members & Coaches', paidMembers, 'No paid members found yet.', 'Active members and coaches with normal app access.')}
 
       {toast && <div className="toast">{toast}</div>}
 
