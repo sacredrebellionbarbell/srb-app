@@ -134,7 +134,19 @@ export default function PostWorkout({ user, onPosted }) {
     <div className="panel">
       <div className="panel-title">Post New Workout</div>
       {err && <p className="auth-error">{err}</p>}
-      {msg && <p style={{ color: 'var(--moss-light)', fontSize: '13px', marginTop: 0 }}>{msg}</p>}
+      {msg && (
+        <p style={{
+          color: 'var(--moss-light)',
+          background: 'rgba(107,115,85,0.18)',
+          border: '1px solid var(--moss)',
+          borderRadius: '4px',
+          fontSize: '18px',
+          fontWeight: 700,
+          lineHeight: 1.4,
+          marginTop: 0,
+          padding: '14px 16px'
+        }}>{msg}</p>
+      )}
 
       <div className="two-col">
         <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
