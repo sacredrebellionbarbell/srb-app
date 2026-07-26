@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { PRESCRIPTION_TYPES, getPrescriptionMeta } from '../utils/prescriptionTypes'
 
 const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
-function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', scheme: 'reps', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
 
@@ -19,6 +20,7 @@ export default function PostWorkout({ user, onPosted }) {
   const [secs, setSecs] = useState([newSec()])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
+  const [msg, setMsg] = useState('')
 
   // Private track state
   const [usePrivateTrack, setUsePrivateTrack] = useState(false)
@@ -63,7 +65,9 @@ export default function PostWorkout({ user, onPosted }) {
   const submit = async () => {
     if (!title.trim()) { setErr('Title is required'); return }
     if (usePrivateTrack && !assignedAthleteId) { setErr('Please select a client'); return }
-    setLoading(true); setErr('')
+    setLoading(true); setErr(''); setMsg('')
+    const savedTitle = title.trim()
+    const savedDate = date
 
     // Resolve private track
     let resolvedPrivateTrackId = null
@@ -109,7 +113,7 @@ export default function PostWorkout({ user, onPosted }) {
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement } = await supabase
-          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
+          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: mov.scheme || 'reps', order_index: mi }).select().single()
         if (!movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) {
@@ -121,14 +125,16 @@ export default function PostWorkout({ user, onPosted }) {
     }
 
     setTitle(''); setNotes(''); setSecs([newSec()]); setAssignedAthleteId(null); setUsePrivateTrack(false)
+    setMsg(`Saved ${savedTitle} for ${savedDate}. Ready for the next workout.`)
     setLoading(false)
-    onPosted()
+    if (onPosted) onPosted()
   }
 
   return (
     <div className="panel">
       <div className="panel-title">Post New Workout</div>
       {err && <p className="auth-error">{err}</p>}
+      {msg && <p style={{ color: 'var(--moss-light)', fontSize: '13px', marginTop: 0 }}>{msg}</p>}
 
       <div className="two-col">
         <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Heavy Squat Day" /></div>
@@ -190,15 +196,22 @@ export default function PostWorkout({ user, onPosted }) {
             </div>
           )}
 
-          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
-            <div key={mov.id} className="mv-block">
-              <div className="mv-block-header">
-                <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name (e.g. Back Squat)'} />
-                {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
-              </div>
-              <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-              <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
-              <>
+          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => {
+            const prescriptionMeta = getPrescriptionMeta(mov.scheme)
+            return (
+              <div key={mov.id} className="mv-block">
+                <div className="mv-block-header">
+                  <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name (e.g. Back Squat)'} />
+                  {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
+                </div>
+                <div className="field" style={{ marginBottom: '8px' }}>
+                  <label>Prescription Type</label>
+                  <select value={mov.scheme || 'reps'} onChange={e => updMov(si, mi, 'scheme', e.target.value)}>
+                    {PRESCRIPTION_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  </select>
+                </div>
+                <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+                <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   {[3, 4, 5].map(count => (
                     <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
@@ -207,13 +220,13 @@ export default function PostWorkout({ user, onPosted }) {
                   ))}
                 </div>
                 <div className="set-builder-header">
-                  <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+                  <span>Set</span><span>{prescriptionMeta.label}</span><span>Load / %</span><span>RPE</span><span></span>
                 </div>
                 {mov.sets.map((st, sti) => (
                   <div key={st.id} className="set-builder-row">
                     <span className="set-num-label">{st.set_number}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={sec.type === 'Accessory' ? '100ft, 12, :30' : '3'} style={{ flex: 1 }} />
+                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={prescriptionMeta.placeholder} style={{ flex: 1 }} />
                       {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
@@ -228,9 +241,9 @@ export default function PostWorkout({ user, onPosted }) {
                   </div>
                 ))}
                 <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
-              </>
-            </div>
-          ))}
+              </div>
+            )
+          })}
           {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
         </div>
       ))}
