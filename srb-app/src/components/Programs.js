@@ -2,14 +2,38 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import VideoModal from './VideoModal'
 import { canSeeWorkouts } from '../utils/access'
+import { PRESCRIPTION_TYPES, getPrescriptionMeta, formatPrescriptionValue } from '../utils/prescriptionTypes'
 
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
-function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', sets: [newSet(1)] } }
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', scheme: 'reps', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
+function cycleStorageKey(programId) { return `srb_program_collapsed_cycles_${programId}` }
+function workoutStorageKey(programId) { return `srb_program_collapsed_workouts_${programId}` }
+
+function parseWorkoutNotes(notes = '') {
+  const lines = String(notes || '').split('\n')
+  const first = lines[0] || ''
+  if (!first.toLowerCase().startsWith('cycle:')) return { cycle: '', notes: notes || '' }
+  return {
+    cycle: first.replace(/^cycle:\s*/i, '').trim(),
+    notes: lines.slice(1).join('\n').replace(/^\n+/, '')
+  }
+}
+
+function composeWorkoutNotes(cycle, notes) {
+  const cleanCycle = String(cycle || '').trim()
+  const cleanNotes = String(notes || '').trim()
+  if (!cleanCycle) return cleanNotes
+  return `Cycle: ${cleanCycle}${cleanNotes ? `\n\n${cleanNotes}` : ''}`
+}
+
+function workoutCycle(pw, fallback = 'Current Cycle') {
+  return parseWorkoutNotes(pw?.workouts?.notes).cycle || fallback
+}
 
 export default function Programs({ user, profile }) {
   const isCoach = profile?.role === 'coach'
@@ -29,7 +53,9 @@ export default function Programs({ user, profile }) {
   const [addMode, setAddMode] = useState(null)
   const [availableWorkouts, setAvailableWorkouts] = useState([])
   const [selectedExisting, setSelectedExisting] = useState('')
+  const [existingCycle, setExistingCycle] = useState('')
   const [wTitle, setWTitle] = useState('')
+  const [wCycle, setWCycle] = useState('')
   const [wNotes, setWNotes] = useState('')
   const [wSecs, setWSecs] = useState([newSec()])
   const [imagePreview, setImagePreview] = useState(null)
@@ -41,6 +67,9 @@ export default function Programs({ user, profile }) {
   const [logNote, setLogNote] = useState('')
   const [demoVideo, setDemoVideo] = useState(null)
   const [sectionLogs, setSectionLogs] = useState({})
+  const [completedOpen, setCompletedOpen] = useState(false)
+  const [collapsedCycles, setCollapsedCycles] = useState({})
+  const [collapsedWorkouts, setCollapsedWorkouts] = useState({})
   const fileRef = useRef()
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
@@ -77,6 +106,41 @@ export default function Programs({ user, profile }) {
 
   useEffect(() => { if (selectedProgram) fetchProgramWorkouts(selectedProgram.id) }, [selectedProgram, fetchProgramWorkouts])
 
+  useEffect(() => {
+    if (!selectedProgram) return
+    try {
+      setCollapsedCycles(JSON.parse(window.localStorage.getItem(cycleStorageKey(selectedProgram.id)) || '{}'))
+      setCollapsedWorkouts(JSON.parse(window.localStorage.getItem(workoutStorageKey(selectedProgram.id)) || '{}'))
+    } catch {
+      setCollapsedCycles({})
+      setCollapsedWorkouts({})
+    }
+    setCompletedOpen(false)
+  }, [selectedProgram])
+
+  const updateCollapsedCycles = updater => {
+    setCollapsedCycles(current => {
+      const next = typeof updater === 'function' ? updater(current) : updater
+      try {
+        if (selectedProgram && typeof window !== 'undefined') window.localStorage.setItem(cycleStorageKey(selectedProgram.id), JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }
+
+  const updateCollapsedWorkouts = updater => {
+    setCollapsedWorkouts(current => {
+      const next = typeof updater === 'function' ? updater(current) : updater
+      try {
+        if (selectedProgram && typeof window !== 'undefined') window.localStorage.setItem(workoutStorageKey(selectedProgram.id), JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }
+
+  const toggleCycle = cycle => updateCollapsedCycles(current => ({ ...current, [cycle]: !current[cycle] }))
+  const toggleWorkout = pwId => updateCollapsedWorkouts(current => ({ ...current, [pwId]: !current[pwId] }))
+
   const logSetValue = async (setId, movementId, workoutId, value) => {
     const { error } = await supabase.from('set_logs').upsert(
       { set_id: setId, movement_id: movementId, workout_id: workoutId, athlete_id: user.id, value },
@@ -111,7 +175,7 @@ export default function Programs({ user, profile }) {
   const saveWorkoutToProgram = async () => {
     if (!wTitle.trim()) { showToast('Title is required'); return }
     const { data: workout, error: wErr } = await supabase.from('workouts')
-      .insert({ title: wTitle.trim(), notes: wNotes.trim(), track: 'Private', assigned_athlete_id: selectedProgram.athlete_id })
+      .insert({ title: wTitle.trim(), notes: composeWorkoutNotes(wCycle || selectedProgram.name, wNotes), track: 'Private', assigned_athlete_id: selectedProgram.athlete_id })
       .select().single()
     if (wErr) { showToast('Error: ' + wErr.message); return }
     for (let si = 0; si < wSecs.length; si++) {
@@ -122,7 +186,7 @@ export default function Programs({ user, profile }) {
       if (!section) continue
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
-        const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
+        const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: mov.scheme || 'reps', order_index: mi }).select().single()
         if (!movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
@@ -131,15 +195,78 @@ export default function Programs({ user, profile }) {
     const nextOrder = programWorkouts.length + 1
     await supabase.from('program_workouts').insert({ program_id: selectedProgram.id, workout_id: workout.id, order_index: nextOrder })
     fetchProgramWorkouts(selectedProgram.id)
-    setAddMode(null); setWTitle(''); setWNotes(''); setWSecs([newSec()]); setImagePreview(null)
+    setAddMode(null); setWTitle(''); setWCycle(''); setWNotes(''); setWSecs([newSec()]); setImagePreview(null)
     showToast('Workout added!')
   }
 
   const addExistingWorkout = async () => {
     if (!selectedExisting) return
+    const sourceId = parseInt(selectedExisting)
+    const { data: source, error: sourceErr } = await supabase
+      .from('workouts')
+      .select('id, title, notes, workout_sections(*, movements(*, sets(*)))')
+      .eq('id', sourceId)
+      .single()
+
+    if (sourceErr || !source) { showToast('Could not copy workout'); return }
+
+    const parsedNotes = parseWorkoutNotes(source.notes)
+    const { data: workout, error: wErr } = await supabase.from('workouts')
+      .insert({
+        title: source.title,
+        notes: composeWorkoutNotes(existingCycle || parsedNotes.cycle || selectedProgram.name, parsedNotes.notes),
+        track: 'Private',
+        assigned_athlete_id: selectedProgram.athlete_id
+      })
+      .select()
+      .single()
+    if (wErr || !workout) { showToast('Error: ' + (wErr?.message || 'Could not create copy')); return }
+
+    const sections = (source.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
+    for (let si = 0; si < sections.length; si++) {
+      const sec = sections[si]
+      const { data: section } = await supabase
+        .from('workout_sections')
+        .insert({ workout_id: workout.id, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si })
+        .select()
+        .single()
+      if (!section) continue
+
+      const movements = (sec.movements || []).sort((a, b) => a.order_index - b.order_index)
+      for (let mi = 0; mi < movements.length; mi++) {
+        const mov = movements[mi]
+        const { data: movement } = await supabase
+          .from('movements')
+          .insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: mov.scheme || 'reps', order_index: mi })
+          .select()
+          .single()
+        if (!movement) continue
+
+        const sets = (mov.sets || []).sort((a, b) => a.order_index - b.order_index)
+        if (sets.length > 0) {
+          await supabase.from('sets').insert(sets.map((st, idx) => ({
+            movement_id: movement.id,
+            set_number: st.set_number || idx + 1,
+            reps: st.reps || '',
+            load: st.load || '',
+            rpe: st.rpe || '',
+            order_index: idx
+          })))
+        }
+      }
+    }
+
     const nextOrder = programWorkouts.length + 1
-    const { error } = await supabase.from('program_workouts').insert({ program_id: selectedProgram.id, workout_id: parseInt(selectedExisting), order_index: nextOrder })
-    if (!error) { fetchProgramWorkouts(selectedProgram.id); setSelectedExisting(''); setAddMode(null); showToast('Added') }
+    const { error } = await supabase.from('program_workouts').insert({ program_id: selectedProgram.id, workout_id: workout.id, order_index: nextOrder })
+    if (!error) {
+      fetchProgramWorkouts(selectedProgram.id)
+      setSelectedExisting('')
+      setExistingCycle('')
+      setAddMode(null)
+      showToast('Copied into program')
+    } else {
+      showToast('Error: ' + error.message)
+    }
   }
 
   const removeFromProgram = async (pwId) => {
@@ -175,7 +302,7 @@ export default function Programs({ user, profile }) {
       try { parsed = JSON.parse(text.trim()) } catch { const match = text.match(/\{[\s\S]*\}/); if (match) parsed = JSON.parse(match[0]); else throw new Error('Parse failed') }
       setWTitle(parsed.title || 'Workout')
       setWNotes(parsed.notes || '')
-      setWSecs((parsed.sections || [newSec()]).map(sec => ({ id: Date.now() + Math.random(), type: STYPES.includes(sec.type) ? sec.type : 'Strength', score_type: SCORE_TYPES.includes(sec.score_type) ? sec.score_type : 'No Score', notes: sec.notes || '', movements: (sec.movements || []).map(mov => ({ id: Date.now() + Math.random(), name: mov.name || '', notes: mov.notes || '', sets: (mov.sets || []).map((st, idx) => ({ id: Date.now() + Math.random(), set_number: st.set_number || idx + 1, reps: String(st.reps || ''), load: String(st.load || ''), rpe: String(st.rpe || '') })) })) })))
+      setWSecs((parsed.sections || [newSec()]).map(sec => ({ id: Date.now() + Math.random(), type: STYPES.includes(sec.type) ? sec.type : 'Strength', score_type: SCORE_TYPES.includes(sec.score_type) ? sec.score_type : 'No Score', notes: sec.notes || '', movements: (sec.movements || []).map(mov => ({ id: Date.now() + Math.random(), name: mov.name || '', notes: mov.notes || '', scheme: mov.scheme || 'reps', sets: (mov.sets || []).map((st, idx) => ({ id: Date.now() + Math.random(), set_number: st.set_number || idx + 1, reps: String(st.reps || ''), load: String(st.load || ''), rpe: String(st.rpe || '') })) })) })))
     } catch (e) { setTranscribeErr('Could not read photo. Edit manually.'); setWSecs([newSec()]) }
     setTranscribing(false)
   }
@@ -204,142 +331,41 @@ export default function Programs({ user, profile }) {
     return { ...m, sets: next }
   }) } : x))
   const completedCount = programWorkouts.filter(pw => pw.completed_at).length
+  const activeProgramWorkouts = programWorkouts.filter(pw => !pw.completed_at)
+  const completedProgramWorkouts = programWorkouts.filter(pw => pw.completed_at)
+  const cycleGroups = activeProgramWorkouts.reduce((groups, pw) => {
+    const cycle = workoutCycle(pw, selectedProgram?.name || 'Current Cycle')
+    if (!groups[cycle]) groups[cycle] = []
+    groups[cycle].push(pw)
+    return groups
+  }, {})
 
-  if (selectedProgram) {
+  const renderProgramWorkout = (pw, idx, options = {}) => {
+    const parsedNotes = parseWorkoutNotes(pw.workouts?.notes)
+    const isCollapsed = collapsedWorkouts[pw.id]
+
     return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '1.5rem' }}>
-          <button className="btn-ghost" onClick={() => { setSelectedProgram(null); setProgramWorkouts([]); setAddMode(null) }}>← Back</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '20px', color: 'var(--gold-light)' }}>{selectedProgram.name}</div>
-            {selectedProgram.profiles?.name && <div style={{ fontSize: '13px', color: 'var(--rose-light)', marginTop: '2px' }}>👤 {selectedProgram.profiles.name}</div>}
-            {selectedProgram.description && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '4px' }}>{selectedProgram.description}</div>}
-          </div>
-          {programWorkouts.length > 0 && (
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '18px', color: 'var(--gold-light)' }}>{completedCount}/{programWorkouts.length}</div>
-              <div style={{ fontSize: '10px', letterSpacing: '2px', color: 'var(--charcoal-light)', textTransform: 'uppercase' }}>Done</div>
-            </div>
-          )}
-        </div>
-
-        {programWorkouts.length > 0 && (
-          <div style={{ height: '3px', background: 'rgba(245,240,232,0.08)', borderRadius: '2px', marginBottom: '1.5rem', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${(completedCount / programWorkouts.length) * 100}%`, background: 'var(--gold)', borderRadius: '2px', transition: 'width 0.3s' }} />
-          </div>
-        )}
-
-        {isCoach && addMode === null && (
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-            <button className="btn-sm" onClick={() => { setAddMode('scratch'); setWTitle(''); setWNotes(''); setWSecs([newSec()]) }}>+ Build Workout</button>
-            <button className="btn-moss" onClick={() => { setAddMode('photo'); setImagePreview(null); setWTitle(''); setWNotes(''); setWSecs([newSec()]) }}>📷 Upload Photo</button>
-            <button className="btn-ghost" onClick={() => setAddMode('existing')}>+ Add Existing</button>
-          </div>
-        )}
-
-        {isCoach && addMode === 'existing' && (
-          <div className="panel" style={{ marginBottom: '1.5rem' }}>
-            <div className="panel-title">Add Existing Workout</div>
-            <div className="field">
-              <label>Select Workout</label>
-              <select value={selectedExisting} onChange={e => setSelectedExisting(e.target.value)}>
-                <option value="">Choose...</option>
-                {availableWorkouts.map(w => <option key={w.id} value={w.id}>{w.title}{w.date ? ` (${w.date})` : ''}</option>)}
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn-sm" onClick={addExistingWorkout} disabled={!selectedExisting}>Add</button>
-              <button className="btn-ghost" onClick={() => setAddMode(null)}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {isCoach && addMode === 'photo' && (
-          <div className="panel" style={{ marginBottom: '1.5rem' }}>
-            <div className="panel-title">Upload Workout Photo</div>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
-            {!imagePreview && !transcribing && (
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                <button className="btn-sm" onClick={() => { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click() }}>📷 Take Photo</button>
-                <button className="btn-ghost" onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current.click() }}>📁 Choose File</button>
-                <button className="btn-ghost" onClick={() => setAddMode(null)}>Cancel</button>
-              </div>
-            )}
-            {transcribing && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '1rem', background: 'rgba(200,169,106,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '4px', marginBottom: '1rem' }}>
-                <span style={{ fontSize: '20px' }}>🤖</span>
-                <div>
-                  <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '14px' }}>Reading workout...</div>
-                  <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>AI is transcribing your photo</div>
+      <div key={pw.id} className="workout-card" style={{ marginBottom: '10px', opacity: pw.completed_at ? 0.75 : 1 }}>
+        <div style={{ padding: '1rem 1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', color: 'var(--charcoal-light)', minWidth: '28px', paddingTop: '2px' }}>{options.completed ? '✓' : idx + 1}</div>
+            <div style={{ flex: 1 }}>
+              <button
+                onClick={() => toggleWorkout(pw.id)}
+                style={{ background: 'transparent', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', width: '100%' }}
+              >
+                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '16px', color: pw.completed_at ? 'var(--moss-light)' : 'var(--gold-light)', marginBottom: '4px' }}>
+                  {isCollapsed ? '▸ ' : '▾ '}{pw.completed_at && '✓ '}{pw.workouts?.title}
                 </div>
-              </div>
-            )}
-            {transcribeErr && <p className="auth-error">{transcribeErr}</p>}
-            {imagePreview && !transcribing && (
-              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
-            )}
-          </div>
-        )}
-
-        {isCoach && addMode === 'edit' && editingPw && (
-          <div className="panel" style={{ marginBottom: '1.5rem' }}>
-            <div className="panel-title">Edit Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount}
-              onSave={async () => {
-                if (!wTitle.trim()) { return }
-                const wid = editingPw.workouts?.id
-                await supabase.from('workouts').update({ title: wTitle.trim(), notes: wNotes.trim() }).eq('id', wid)
-                await supabase.from('workout_sections').delete().eq('workout_id', wid)
-                for (let si = 0; si < wSecs.length; si++) {
-                  const sec = wSecs[si]
-                  const validMovs = sec.movements.filter(m => m.name.trim())
-                  if (!validMovs.length) continue
-                  const { data: section } = await supabase.from('workout_sections').insert({ workout_id: wid, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si }).select().single()
-                  if (!section) continue
-                  for (let mi = 0; mi < validMovs.length; mi++) {
-                    const mov = validMovs[mi]
-                    const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: '', order_index: mi }).select().single()
-                    if (!movement) continue
-                    const validSets = mov.sets.filter(st => st.reps || st.load)
-                    if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
-                  }
-                }
-                setAddMode(null); setEditingPw(null); setWTitle(''); setWNotes(''); setWSecs([newSec()])
-                fetchProgramWorkouts(selectedProgram.id)
-              }}
-              onCancel={() => { setAddMode(null); setEditingPw(null) }} />
-          </div>
-        )}
-
-        {isCoach && addMode === 'scratch' && (
-          <div className="panel" style={{ marginBottom: '1.5rem' }}>
-            <div className="panel-title">Build Workout</div>
-            <WorkoutBuilder title={wTitle} setTitle={setWTitle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
-          </div>
-        )}
-
-        {programWorkouts.length === 0 && addMode === null && (
-          <div className="empty">
-            <h3>No workouts yet</h3>
-            <p>{isCoach ? 'Add workouts above.' : 'Your coach is building your program.'}</p>
-          </div>
-        )}
-
-        {programWorkouts.map((pw, idx) => (
-          <div key={pw.id} className="workout-card" style={{ marginBottom: '10px', opacity: pw.completed_at ? 0.75 : 1 }}>
-            <div style={{ padding: '1rem 1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                <div style={{ fontFamily: 'Cinzel, serif', fontSize: '13px', color: 'var(--charcoal-light)', minWidth: '28px', paddingTop: '2px' }}>{idx + 1}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: 'Cinzel, serif', fontSize: '16px', color: pw.completed_at ? 'var(--moss-light)' : 'var(--gold-light)', marginBottom: '4px' }}>
-                    {pw.completed_at && '✓ '}{pw.workouts?.title}
-                  </div>
-                  {pw.completed_at && (
-                    <div style={{ fontSize: '12px', color: 'var(--moss-light)', marginBottom: '6px' }}>
-                      Completed {new Date(pw.completed_at).toLocaleDateString()}{pw.completion_note && ` · ${pw.completion_note}`}
-                    </div>
-                  )}
-                  {pw.workouts?.notes && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '8px' }}>{pw.workouts.notes}</div>}
+              </button>
+              {pw.completed_at && (
+                <div style={{ fontSize: '12px', color: 'var(--moss-light)', marginBottom: '6px' }}>
+                  Completed {new Date(pw.completed_at).toLocaleDateString()}{pw.completion_note && ` · ${pw.completion_note}`}
+                </div>
+              )}
+              {!isCollapsed && (
+                <>
+                  {parsedNotes.notes && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '8px', whiteSpace: 'pre-line' }}>{parsedNotes.notes}</div>}
                   {(pw.workouts?.workout_sections || []).sort((a, b) => a.order_index - b.order_index).map((sec, si) => {
                     const mySecLog = (sec.section_logs || []).find(sl => sl.athlete_id === user.id)
                     const scoreType = sec.score_type || 'No Score'
@@ -369,7 +395,7 @@ export default function Programs({ user, profile }) {
                                   ) : (
                                     <>
                                       <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '40px' }}>Set {st.set_number}</span>
-                                      {st.reps && <span style={{ color: 'var(--bone)' }}>{st.reps} reps</span>}
+                                      {st.reps && <span style={{ color: 'var(--bone)' }}>{formatPrescriptionValue(st.reps, m.scheme)}</span>}
                                       {st.load && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>@ {st.load}</span>}
                                       {st.rpe && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>RPE {st.rpe}</span>}
                                     </>
@@ -384,32 +410,209 @@ export default function Programs({ user, profile }) {
                       </div>
                     )
                   })}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', flexShrink: 0 }}>
-                  {pw.completed_at
-                    ? <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => uncomplete(pw.id)}>Undo</button>
-                    : <button className="btn-sm" style={{ fontSize: '11px' }} onClick={() => { setLoggingPw(pw); setLogDate(new Date().toISOString().split('T')[0]); setLogNote('') }}>Log & Done</button>
-                  }
-                  {isCoach && <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => {
-                    const w = pw.workouts
-                    setWTitle(w?.title || '')
-                    setWNotes(w?.notes || '')
-                    setWSecs((w?.workout_sections || []).sort((a,b) => a.order_index - b.order_index).map(sec => ({
-                      id: Date.now() + Math.random(), type: sec.type, score_type: sec.score_type || 'No Score', notes: sec.notes || '',
-                      movements: (sec.movements || []).sort((a,b) => a.order_index - b.order_index).map(mov => ({
-                        id: Date.now() + Math.random(), name: mov.name, notes: mov.notes || '',
-                        sets: (mov.sets || []).sort((a,b) => a.order_index - b.order_index).map(st => ({ id: Date.now() + Math.random(), set_number: st.set_number, reps: st.reps || '', load: st.load || '', rpe: st.rpe || '' }))
-                      }))
-                    })) || [newSec()])
-                    setEditingPw(pw)
-                    setAddMode('edit')
-                  }}>Edit</button>}
-                  {isCoach && <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={() => removeFromProgram(pw.id)}>Remove</button>}
-                </div>
-              </div>
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', flexShrink: 0 }}>
+              <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => toggleWorkout(pw.id)}>{isCollapsed ? 'Open' : 'Collapse'}</button>
+              {pw.completed_at
+                ? <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => uncomplete(pw.id)}>Undo</button>
+                : <button className="btn-sm" style={{ fontSize: '11px' }} onClick={() => { setLoggingPw(pw); setLogDate(new Date().toISOString().split('T')[0]); setLogNote('') }}>Log & Done</button>
+              }
+              {isCoach && <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => {
+                const w = pw.workouts
+                const parsedWorkoutNotes = parseWorkoutNotes(w?.notes)
+                setWTitle(w?.title || '')
+                setWCycle(parsedWorkoutNotes.cycle || selectedProgram.name)
+                setWNotes(parsedWorkoutNotes.notes || '')
+                setWSecs((w?.workout_sections || []).sort((a,b) => a.order_index - b.order_index).map(sec => ({
+                  id: Date.now() + Math.random(), type: sec.type, score_type: sec.score_type || 'No Score', notes: sec.notes || '',
+                  movements: (sec.movements || []).sort((a,b) => a.order_index - b.order_index).map(mov => ({
+                    id: Date.now() + Math.random(), name: mov.name, notes: mov.notes || '', scheme: mov.scheme || 'reps',
+                    sets: (mov.sets || []).sort((a,b) => a.order_index - b.order_index).map(st => ({ id: Date.now() + Math.random(), set_number: st.set_number, reps: st.reps || '', load: st.load || '', rpe: st.rpe || '' }))
+                  }))
+                })) || [newSec()])
+                setEditingPw(pw)
+                setAddMode('edit')
+              }}>Edit</button>}
+              {isCoach && <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={() => removeFromProgram(pw.id)}>Remove</button>}
             </div>
           </div>
-        ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedProgram) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '1.5rem' }}>
+          <button className="btn-ghost" onClick={() => { setSelectedProgram(null); setProgramWorkouts([]); setAddMode(null) }}>← Back</button>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'Cinzel, serif', fontSize: '20px', color: 'var(--gold-light)' }}>{selectedProgram.name}</div>
+            {selectedProgram.profiles?.name && <div style={{ fontSize: '13px', color: 'var(--rose-light)', marginTop: '2px' }}>👤 {selectedProgram.profiles.name}</div>}
+            {selectedProgram.description && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginTop: '4px' }}>{selectedProgram.description}</div>}
+          </div>
+          {programWorkouts.length > 0 && (
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontFamily: 'Cinzel, serif', fontSize: '18px', color: 'var(--gold-light)' }}>{completedCount}/{programWorkouts.length}</div>
+              <div style={{ fontSize: '10px', letterSpacing: '2px', color: 'var(--charcoal-light)', textTransform: 'uppercase' }}>Done</div>
+            </div>
+          )}
+        </div>
+
+        {programWorkouts.length > 0 && (
+          <div style={{ height: '3px', background: 'rgba(245,240,232,0.08)', borderRadius: '2px', marginBottom: '1.5rem', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${(completedCount / programWorkouts.length) * 100}%`, background: 'var(--gold)', borderRadius: '2px', transition: 'width 0.3s' }} />
+          </div>
+        )}
+
+        {isCoach && addMode === null && (
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <button className="btn-sm" onClick={() => { setAddMode('scratch'); setWTitle(''); setWCycle(selectedProgram.name); setWNotes(''); setWSecs([newSec()]) }}>+ Build Workout</button>
+            <button className="btn-moss" onClick={() => { setAddMode('photo'); setImagePreview(null); setWTitle(''); setWCycle(selectedProgram.name); setWNotes(''); setWSecs([newSec()]) }}>📷 Upload Photo</button>
+            <button className="btn-ghost" onClick={() => { setAddMode('existing'); setExistingCycle(selectedProgram.name) }}>+ Copy Existing</button>
+          </div>
+        )}
+
+        {isCoach && addMode === 'existing' && (
+          <div className="panel" style={{ marginBottom: '1.5rem' }}>
+            <div className="panel-title">Copy Existing Workout</div>
+            <div className="field">
+              <label>Cycle</label>
+              <input type="text" value={existingCycle} onChange={e => setExistingCycle(e.target.value)} placeholder="e.g. Babes Who Fight Bears" />
+            </div>
+            <div className="field">
+              <label>Select Workout To Copy</label>
+              <select value={selectedExisting} onChange={e => setSelectedExisting(e.target.value)}>
+                <option value="">Choose...</option>
+                {availableWorkouts.map(w => <option key={w.id} value={w.id}>{w.title}{w.date ? ` (${w.date})` : ''}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn-sm" onClick={addExistingWorkout} disabled={!selectedExisting}>Copy Into Program</button>
+              <button className="btn-ghost" onClick={() => setAddMode(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {isCoach && addMode === 'photo' && (
+          <div className="panel" style={{ marginBottom: '1.5rem' }}>
+            <div className="panel-title">Upload Workout Photo</div>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handlePhoto} />
+            {!imagePreview && !transcribing && (
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <button className="btn-sm" onClick={() => { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click() }}>📷 Take Photo</button>
+                <button className="btn-ghost" onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current.click() }}>📁 Choose File</button>
+                <button className="btn-ghost" onClick={() => setAddMode(null)}>Cancel</button>
+              </div>
+            )}
+            {transcribing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '1rem', background: 'rgba(200,169,106,0.06)', border: '1px solid var(--gold-dark)', borderRadius: '4px', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '20px' }}>🤖</span>
+                <div>
+                  <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '14px' }}>Reading workout...</div>
+                  <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>AI is transcribing your photo</div>
+                </div>
+              </div>
+            )}
+            {transcribeErr && <p className="auth-error">{transcribeErr}</p>}
+            {imagePreview && !transcribing && (
+              <WorkoutBuilder imagePreview={imagePreview} title={wTitle} setTitle={setWTitle} cycle={wCycle} setCycle={setWCycle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+            )}
+          </div>
+        )}
+
+        {isCoach && addMode === 'edit' && editingPw && (
+          <div className="panel" style={{ marginBottom: '1.5rem' }}>
+            <div className="panel-title">Edit Workout</div>
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} cycle={wCycle} setCycle={setWCycle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount}
+              onSave={async () => {
+                if (!wTitle.trim()) { return }
+                const wid = editingPw.workouts?.id
+                await supabase.from('workouts').update({ title: wTitle.trim(), notes: composeWorkoutNotes(wCycle || selectedProgram.name, wNotes) }).eq('id', wid)
+                await supabase.from('workout_sections').delete().eq('workout_id', wid)
+                for (let si = 0; si < wSecs.length; si++) {
+                  const sec = wSecs[si]
+                  const validMovs = sec.movements.filter(m => m.name.trim())
+                  if (!validMovs.length) continue
+                  const { data: section } = await supabase.from('workout_sections').insert({ workout_id: wid, type: sec.type, score_type: sec.score_type, notes: sec.notes, order_index: si }).select().single()
+                  if (!section) continue
+                  for (let mi = 0; mi < validMovs.length; mi++) {
+                    const mov = validMovs[mi]
+                    const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: mov.scheme || 'reps', order_index: mi }).select().single()
+                    if (!movement) continue
+                    const validSets = mov.sets.filter(st => st.reps || st.load)
+                    if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
+                  }
+                }
+                setAddMode(null); setEditingPw(null); setWTitle(''); setWCycle(''); setWNotes(''); setWSecs([newSec()])
+                fetchProgramWorkouts(selectedProgram.id)
+              }}
+              onCancel={() => { setAddMode(null); setEditingPw(null) }} />
+          </div>
+        )}
+
+        {isCoach && addMode === 'scratch' && (
+          <div className="panel" style={{ marginBottom: '1.5rem' }}>
+            <div className="panel-title">Build Workout</div>
+            <WorkoutBuilder title={wTitle} setTitle={setWTitle} cycle={wCycle} setCycle={setWCycle} notes={wNotes} setNotes={setWNotes} secs={wSecs} updSec={updSec} addSec={addSec} rmSec={rmSec} moveSec={moveSec} addMov={addMov} rmMov={rmMov} updMov={updMov} addSet={addSet} rmSet={rmSet} updSet={updSet} copyDown={copyDown} setSetCount={setSetCount} onSave={saveWorkoutToProgram} onCancel={() => setAddMode(null)} />
+          </div>
+        )}
+
+        {programWorkouts.length === 0 && addMode === null && (
+          <div className="empty">
+            <h3>No workouts yet</h3>
+            <p>{isCoach ? 'Add workouts above.' : 'Your coach is building your program.'}</p>
+          </div>
+        )}
+
+        {Object.entries(cycleGroups).map(([cycle, workouts]) => {
+          const collapsed = collapsedCycles[cycle]
+          return (
+            <div key={cycle} className="panel" style={{ marginBottom: '1rem' }}>
+              <button
+                onClick={() => toggleCycle(cycle)}
+                style={{ width: '100%', background: 'transparent', border: 'none', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer', textAlign: 'left' }}
+              >
+                <div>
+                  <div className="panel-title" style={{ marginBottom: '4px' }}>{collapsed ? '▸' : '▾'} {cycle}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>
+                    {workouts.length} active workout{workouts.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <span style={{ color: 'var(--gold-dark)', fontSize: '18px' }}>{collapsed ? '+' : '−'}</span>
+              </button>
+              {!collapsed && (
+                <div style={{ marginTop: '1rem' }}>
+                  {workouts.map((pw, idx) => renderProgramWorkout(pw, idx))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {completedProgramWorkouts.length > 0 && (
+          <div className="panel" style={{ marginBottom: '1rem' }}>
+            <button
+              onClick={() => setCompletedOpen(open => !open)}
+              style={{ width: '100%', background: 'transparent', border: 'none', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', cursor: 'pointer', textAlign: 'left' }}
+            >
+              <div>
+                <div className="panel-title" style={{ marginBottom: '4px' }}>{completedOpen ? '▾' : '▸'} Completed</div>
+                <div style={{ fontSize: '12px', color: 'var(--charcoal-light)' }}>
+                  {completedProgramWorkouts.length} finished workout{completedProgramWorkouts.length === 1 ? '' : 's'}
+                </div>
+              </div>
+              <span style={{ color: 'var(--moss-light)', fontSize: '18px' }}>{completedOpen ? '−' : '+'}</span>
+            </button>
+            {completedOpen && (
+              <div style={{ marginTop: '1rem' }}>
+                {completedProgramWorkouts.map((pw, idx) => renderProgramWorkout(pw, idx, { completed: true }))}
+              </div>
+            )}
+          </div>
+        )}
 
         {loggingPw && (
           <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') setLoggingPw(null) }}>
@@ -549,11 +752,12 @@ function ProgramSectionNotesInput({ myLog, onSave }) {
   )
 }
 
-function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec, rmSec, moveSec, addMov, rmMov, updMov, addSet, rmSet, updSet, copyDown, setSetCount, onSave, onCancel, imagePreview }) {
+function WorkoutBuilder({ title, setTitle, cycle, setCycle, notes, setNotes, secs, updSec, addSec, rmSec, moveSec, addMov, rmMov, updMov, addSet, rmSet, updSet, copyDown, setSetCount, onSave, onCancel, imagePreview }) {
   return (
     <div>
       {imagePreview && <img src={imagePreview} alt="Workout" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--border)', marginBottom: '1rem' }} />}
       <div className="field"><label>Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Workout title" /></div>
+      <div className="field"><label>Cycle</label><input type="text" value={cycle || ''} onChange={e => setCycle(e.target.value)} placeholder="e.g. Babes Who Fight Bears" /></div>
       <div className="field"><label>Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Intent, coaching notes..." /></div>
       <span className="sb-label">Sections</span>
       {secs.map((sec, si) => (
@@ -577,15 +781,22 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
               <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '5 Rounds')}>5 Rounds</button>
             </div>
           )}
-          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
-            <div key={mov.id} className="mv-block">
-              <div className="mv-block-header">
-                <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name'} />
-                {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
-              </div>
-              <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-      <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
-              <>
+          {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => {
+            const prescriptionMeta = getPrescriptionMeta(mov.scheme)
+            return (
+              <div key={mov.id} className="mv-block">
+                <div className="mv-block-header">
+                  <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name'} />
+                  {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
+                </div>
+                <div className="field" style={{ marginBottom: '8px' }}>
+                  <label>Prescription Type</label>
+                  <select value={mov.scheme || 'reps'} onChange={e => updMov(si, mi, 'scheme', e.target.value)}>
+                    {PRESCRIPTION_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  </select>
+                </div>
+                <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
+                <input className="mv-block-notes" type="text" value={mov.demo_url || ''} onChange={e => updMov(si, mi, 'demo_url', e.target.value)} placeholder="YouTube demo URL (optional)" />
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                   {[3, 4, 5].map(count => (
                     <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
@@ -593,12 +804,12 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
                     </button>
                   ))}
                 </div>
-                <div className="set-builder-header"><span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span></div>
+                <div className="set-builder-header"><span>Set</span><span>{prescriptionMeta.label}</span><span>Load / %</span><span>RPE</span><span></span></div>
                 {mov.sets.map((st, sti) => (
                   <div key={st.id} className="set-builder-row">
                     <span className="set-num-label">{st.set_number}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={sec.type === 'Accessory' ? '100ft, 12, :30' : '3'} style={{ flex: 1 }} />
+                      <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={prescriptionMeta.placeholder} style={{ flex: 1 }} />
                       {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
@@ -613,9 +824,9 @@ function WorkoutBuilder({ title, setTitle, notes, setNotes, secs, updSec, addSec
                   </div>
                 ))}
                 <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
-              </>
-            </div>
-          ))}
+              </div>
+            )
+          })}
           {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
         </div>
       ))}
