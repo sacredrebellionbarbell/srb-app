@@ -2,7 +2,29 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import AthletePanel from './AthletePanel'
 import { attendanceDate, classAttendanceRows, milestoneReachedForTotal, normalizeAttendance } from '../utils/achievements'
-import { FREE_TRIAL_CLASS_LIMIT, getAccessStatus, isFreeTrial, isPaidMember } from '../utils/access'
+import { FREE_TRIAL_CLASS_LIMIT, isFreeTrial } from '../utils/access'
+
+const COMMAND_CENTER_TYPES = ['Class Access', 'Free Trial']
+const FOLLOW_UP_KEY = 'srb_command_center_followups_v1'
+
+function isTestProfile(profile) {
+  const label = `${profile?.name || ''} ${profile?.email || ''}`.toLowerCase()
+  return /\btest\b/.test(label)
+}
+
+function isCommandCenterAthlete(profile) {
+  return profile?.role !== 'coach' && COMMAND_CENTER_TYPES.includes(profile?.membership_type) && !isTestProfile(profile)
+}
+
+function followUpId(athleteId, reason) {
+  return `${athleteId}:${reason}`
+}
+
+function followUpLabel(value) {
+  if (value === 'contacted') return 'Followed up'
+  if (value === 'dismissed') return 'Dismissed'
+  return 'Needs follow-up'
+}
 
 function todayKey() {
   return new Date().toISOString().split('T')[0]
@@ -35,7 +57,31 @@ function personName(row) {
   return row?.profiles?.name || 'Athlete'
 }
 
-function AthleteMini({ athlete, onOpen, detail, badge }) {
+function FollowUpSelect({ value, onChange }) {
+  return (
+    <select
+      value={value || 'needs'}
+      onChange={e => onChange(e.target.value)}
+      onClick={e => e.stopPropagation()}
+      style={{
+        background: 'rgba(255,248,236,0.12)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: '3px',
+        color: 'var(--bone)',
+        fontSize: '12px',
+        padding: '7px 8px',
+        minWidth: '128px'
+      }}
+      aria-label="Follow-up status"
+    >
+      <option value="needs">Needs follow-up</option>
+      <option value="contacted">Followed up</option>
+      <option value="dismissed">Dismissed</option>
+    </select>
+  )
+}
+
+function AthleteMini({ athlete, onOpen, detail, badge, followUpValue, onFollowUpChange }) {
   return (
     <button
       onClick={() => onOpen?.(athlete.id)}
@@ -61,7 +107,15 @@ function AthleteMini({ athlete, onOpen, detail, badge }) {
         <div style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', fontSize: '14px', letterSpacing: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{athlete.name || 'Unnamed'}</div>
         {detail && <div style={{ color: 'var(--charcoal-light)', fontSize: '13px', marginTop: '2px' }}>{detail}</div>}
       </div>
-      {badge && <span className="membership-badge membership-trial">{badge}</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        {badge && <span className="membership-badge membership-trial">{badge}</span>}
+        {onFollowUpChange && (
+          <FollowUpSelect
+            value={followUpValue}
+            onChange={onFollowUpChange}
+          />
+        )}
+      </div>
     </button>
   )
 }
@@ -97,7 +151,30 @@ export default function CommandCenter({ user }) {
   const [notifications, setNotifications] = useState([])
   const [setLogs, setSetLogs] = useState([])
   const [selectedAthlete, setSelectedAthlete] = useState(null)
+  const [followUps, setFollowUps] = useState(() => {
+    try {
+      if (typeof window === 'undefined') return {}
+      return JSON.parse(window.localStorage.getItem(FOLLOW_UP_KEY) || '{}')
+    } catch {
+      return {}
+    }
+  })
   const [loading, setLoading] = useState(true)
+
+  const setFollowUp = useCallback((athleteId, reason, value) => {
+    const key = followUpId(athleteId, reason)
+    setFollowUps(current => {
+      const next = { ...current, [key]: { status: value, updated_at: new Date().toISOString() } }
+      try {
+        if (typeof window !== 'undefined') window.localStorage.setItem(FOLLOW_UP_KEY, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [])
+
+  const getFollowUp = useCallback((athleteId, reason) => {
+    return followUps[followUpId(athleteId, reason)]?.status || 'needs'
+  }, [followUps])
 
   const fetchCommandCenter = useCallback(async () => {
     setLoading(true)
@@ -116,28 +193,28 @@ export default function CommandCenter({ user }) {
       supabase.from('profiles').select('*').order('name', { ascending: true }),
       supabase
         .from('classes')
-        .select('*, class_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
+        .select('*, class_signups(athlete_id, checkin_time, profiles(name, email, avatar_url, membership_type))')
         .eq('is_recurring', false)
         .gte('start_time', startOfTodayISO())
         .lte('start_time', endOfTodayISO())
         .order('start_time', { ascending: true }),
       supabase
         .from('class_instances')
-        .select('*, classes(title, recurrence_time, capacity, is_247), instance_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
+        .select('*, classes(title, recurrence_time, capacity, is_247), instance_signups(athlete_id, checkin_time, profiles(name, email, avatar_url, membership_type))')
         .eq('instance_date', today)
         .order('instance_date', { ascending: true }),
       supabase
         .from('class_signups')
-        .select('id, athlete_id, signed_up_at, checkin_time, profiles(name, avatar_url), classes(title, start_time, is_247)')
+        .select('id, athlete_id, signed_up_at, checkin_time, profiles(name, email, avatar_url, membership_type), classes(title, start_time, is_247)')
         .order('signed_up_at', { ascending: false })
         .limit(900),
       supabase
         .from('instance_signups')
-        .select('id, athlete_id, signed_up_at, checkin_time, profiles(name, avatar_url), class_instances(instance_date, classes(title, is_247))')
+        .select('id, athlete_id, signed_up_at, checkin_time, profiles(name, email, avatar_url, membership_type), class_instances(instance_date, classes(title, is_247))')
         .limit(900),
       supabase
         .from('open_gym_bookings')
-        .select('*, profiles(name, avatar_url)')
+        .select('*, profiles(name, email, avatar_url, membership_type)')
         .eq('booking_date', today)
         .order('slot_start_time', { ascending: true }),
       supabase
@@ -147,18 +224,18 @@ export default function CommandCenter({ user }) {
         .limit(15),
       supabase
         .from('set_logs')
-        .select('id, athlete_id, value, created_at, profiles(name, avatar_url), movements(name), workouts(title, date)')
+        .select('id, athlete_id, value, created_at, profiles(name, email, avatar_url, membership_type), movements(name), workouts(title, date)')
         .order('created_at', { ascending: false })
         .limit(300)
     ])
 
-    setProfiles(profilesRes.data || [])
+    setProfiles((profilesRes.data || []).filter(isCommandCenterAthlete))
     setOneTimeClasses(oneTimeRes.data || [])
     setTodayInstances(instanceRes.data || [])
-    setAttendance(normalizeAttendance(classAttendanceRes.data || [], instanceAttendanceRes.data || []))
-    setOpenGymBookings(openGymRes.data || [])
+    setAttendance(normalizeAttendance(classAttendanceRes.data || [], instanceAttendanceRes.data || []).filter(row => isCommandCenterAthlete(row.profiles)))
+    setOpenGymBookings((openGymRes.data || []).filter(row => isCommandCenterAthlete(row.profiles)))
     setNotifications(notificationRes.data || [])
-    setSetLogs(setLogsRes.data || [])
+    setSetLogs((setLogsRes.data || []).filter(row => isCommandCenterAthlete(row.profiles)))
     setLoading(false)
   }, [])
 
@@ -190,7 +267,7 @@ export default function CommandCenter({ user }) {
         title: cls.title,
         time: cls.start_time ? new Date(cls.start_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Today',
         capacity: cls.capacity,
-        signups: cls.class_signups || []
+        signups: (cls.class_signups || []).filter(signup => isCommandCenterAthlete(signup.profiles))
       }))
 
     const recurring = todayInstances
@@ -200,31 +277,27 @@ export default function CommandCenter({ user }) {
         title: instance.classes?.title || 'Class',
         time: instance.classes?.recurrence_time || 'Today',
         capacity: instance.classes?.capacity,
-        signups: instance.instance_signups || []
+        signups: (instance.instance_signups || []).filter(signup => isCommandCenterAthlete(signup.profiles))
       }))
 
-    return [...oneTime, ...recurring]
+    return [...oneTime, ...recurring].filter(cls => cls.signups.length)
   }, [oneTimeClasses, todayInstances])
 
   const trialRows = useMemo(() => {
     return profiles
       .filter(isFreeTrial)
+      .filter(profile => followUps[followUpId(profile.id, 'trial')]?.status !== 'dismissed')
       .map(profile => {
         const uses = (attendanceByAthlete[profile.id] || []).length
         return { profile, uses, remaining: Math.max(FREE_TRIAL_CLASS_LIMIT - uses, 0) }
       })
       .sort((a, b) => b.uses - a.uses || (a.profile.name || '').localeCompare(b.profile.name || ''))
-  }, [attendanceByAthlete, profiles])
-
-  const leads = useMemo(() => {
-    return profiles
-      .filter(profile => profile.role !== 'coach' && getAccessStatus(profile) === 'Lead')
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-  }, [profiles])
+  }, [attendanceByAthlete, followUps, profiles])
 
   const inactiveMembers = useMemo(() => {
     return profiles
-      .filter(profile => profile.role !== 'coach' && isPaidMember(profile))
+      .filter(profile => profile.membership_type === 'Class Access')
+      .filter(profile => followUps[followUpId(profile.id, 'inactive')]?.status !== 'dismissed')
       .map(profile => {
         const rows = attendanceByAthlete[profile.id] || []
         const latest = rows.sort((a, b) => new Date(attendanceDate(b) || 0) - new Date(attendanceDate(a) || 0))[0]
@@ -234,7 +307,7 @@ export default function CommandCenter({ user }) {
       .filter(row => row.days >= 7)
       .sort((a, b) => b.days - a.days)
       .slice(0, 8)
-  }, [attendanceByAthlete, profiles])
+  }, [attendanceByAthlete, followUps, profiles])
 
   const recentWins = useMemo(() => {
     const wins = []
@@ -270,14 +343,18 @@ export default function CommandCenter({ user }) {
     return wins.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8)
   }, [attendanceByAthlete, setLogs])
 
-  const newTrialNotifications = notifications.filter(n => n.type === 'free_trial_signup')
-  const checkInAlerts = notifications.filter(n => n.type === '247_checkin')
+  const visibleNotifications = notifications.filter(n => {
+    if (!n.athlete_id) return true
+    return isCommandCenterAthlete(profileById[n.athlete_id])
+  })
+  const newTrialNotifications = visibleNotifications.filter(n => n.type === 'free_trial_signup')
+  const checkInAlerts = visibleNotifications.filter(n => n.type === '247_checkin')
 
   const stats = {
     todaySignups: todayClasses.reduce((sum, cls) => sum + (cls.signups?.length || 0), 0),
     todayCheckedIn: todayClasses.reduce((sum, cls) => sum + (cls.signups || []).filter(s => s.checkin_time).length, 0),
     trials: trialRows.length,
-    leads: leads.length,
+    classAccess: profiles.filter(profile => profile.membership_type === 'Class Access').length,
     inactive: inactiveMembers.length,
     openGym: openGymBookings.length
   }
@@ -301,7 +378,7 @@ export default function CommandCenter({ user }) {
         <Stat label="Checked In" value={stats.todayCheckedIn} tone="moss" />
         <Stat label="Open Gym" value={stats.openGym} tone="moss" />
         <Stat label="Trials" value={stats.trials} tone="rose" />
-        <Stat label="Leads" value={stats.leads} tone="rose" />
+        <Stat label="Class Access" value={stats.classAccess} tone="rose" />
         <Stat label="7+ Days Out" value={stats.inactive} />
       </div>
 
@@ -342,19 +419,23 @@ export default function CommandCenter({ user }) {
               athlete={profile}
               onOpen={setSelectedAthlete}
               badge={`${uses}/${FREE_TRIAL_CLASS_LIMIT}`}
-              detail={remaining > 0 ? `${remaining} class${remaining === 1 ? '' : 'es'} remaining` : 'Trial complete. Follow up.'}
+              detail={`${remaining > 0 ? `${remaining} class${remaining === 1 ? '' : 'es'} remaining` : 'Trial complete. Follow up.'} · ${followUpLabel(getFollowUp(profile.id, 'trial'))}`}
+              followUpValue={getFollowUp(profile.id, 'trial')}
+              onFollowUpChange={value => setFollowUp(profile.id, 'trial', value)}
             />
           ))}
         </PanelList>
 
-        <PanelList title="Retention Radar" empty="No paid members are 7+ days out.">
+        <PanelList title="Class Access Retention" empty="No class-access members are 7+ days out.">
           {inactiveMembers.map(({ profile, days, lastSeen }) => (
             <AthleteMini
               key={profile.id}
               athlete={profile}
               onOpen={setSelectedAthlete}
               badge={`${days}d`}
-              detail={lastSeen ? `Last class ${new Date(lastSeen).toLocaleDateString()}` : 'No class attendance yet'}
+              detail={`${lastSeen ? `Last class ${new Date(lastSeen).toLocaleDateString()}` : 'No class attendance yet'} · ${followUpLabel(getFollowUp(profile.id, 'inactive'))}`}
+              followUpValue={getFollowUp(profile.id, 'inactive')}
+              onFollowUpChange={value => setFollowUp(profile.id, 'inactive', value)}
             />
           ))}
         </PanelList>
@@ -370,17 +451,6 @@ export default function CommandCenter({ user }) {
               <div className="hist-title">{win.text}</div>
               <div className="hist-date">{win.date ? new Date(win.date).toLocaleDateString() : ''}</div>
             </button>
-          ))}
-        </PanelList>
-
-        <PanelList title="Leads" empty="No lead profiles waiting right now.">
-          {leads.slice(0, 8).map(profile => (
-            <AthleteMini
-              key={profile.id}
-              athlete={profile}
-              onOpen={setSelectedAthlete}
-              detail={profile.created_at ? `Joined ${new Date(profile.created_at).toLocaleDateString()}` : 'Lead'}
-            />
           ))}
         </PanelList>
 
