@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react'
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
 
 const NAV_ITEMS = [
+  { id: 'today', label: 'Today', icon: '☉', coachOnly: false },
   { id: 'workouts', label: 'Workouts', icon: '🏋️', coachOnly: false },
   { id: 'schedule', label: 'Schedule', icon: '📅', coachOnly: false },
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
