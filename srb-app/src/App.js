@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import Auth from './components/Auth'
 import Nav from './components/Nav'
+import Today from './components/Today'
 import Workouts from './components/Workouts'
 import PostWorkout from './components/PostWorkout'
 import PhotoWorkout from './components/PhotoWorkout'
@@ -30,7 +31,7 @@ export default KioskWrapper
 function AppMain() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [tab, setTab] = useState('workouts')
+  const [tab, setTab] = useState('today')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -56,7 +57,7 @@ function AppMain() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    setTab('workouts')
+    setTab('today')
   }
 
   if (loading) return (
@@ -98,6 +99,7 @@ function AppMain() {
       <main className="main">
         <AthleteMomentum user={session.user} profile={profile} />
         {tab === 'command' && isCoach && <CommandCenter user={session.user} />}
+        {tab === 'today' && <Today user={session.user} profile={profile} setTab={setTab} />}
         {tab === 'workouts' && <Workouts user={session.user} profile={profile} />}
         {tab === 'schedule' && <Schedule user={session.user} profile={profile} />}
         {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => {}} />}
