@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { id: 'workouts', label: 'Workouts', icon: '🏋️', coachOnly: false },
   { id: 'schedule', label: 'Schedule', icon: '📅', coachOnly: false },
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
+  { id: 'resources', label: 'Resources', icon: '🔗', coachOnly: false },
   { id: 'shop', label: 'Shop', icon: '🛍️', coachOnly: false },
   { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
   { id: 'command', label: 'Command Center', icon: '⌁', coachOnly: true },
