@@ -154,7 +154,7 @@ export default function CRM({ user }) {
   )
 
   const renderGroup = (title, list, empty, subtitle) => (
-    <div className="panel" style={{ marginBottom: '1.5rem' }}>
+    <div>
       <div className="class-card-header" style={{ marginBottom: '1rem' }}>
         <div>
           <div className="panel-title" style={{ marginBottom: subtitle ? '6px' : 0 }}>{title}</div>
@@ -175,19 +175,66 @@ export default function CRM({ user }) {
         </span>
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '0 0 1.5rem' }}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={activeTab === tab.id ? 'btn-sm' : 'btn-ghost'}
-            onClick={() => {
-              setActiveTab(tab.id)
-              setSelected(null)
-            }}
-          >
-            {tab.label} ({tab.count})
-          </button>
-        ))}
+      <div className="panel" style={{ marginBottom: '1.5rem', padding: 0, overflow: 'hidden' }}>
+        <div
+          role="tablist"
+          aria-label="Member status tabs"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            borderBottom: '1px solid var(--border)',
+            background: 'rgba(245,240,232,0.03)'
+          }}
+        >
+          {tabs.map(tab => {
+            const active = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  setActiveTab(tab.id)
+                  setSelected(null)
+                }}
+                style={{
+                  border: 'none',
+                  borderRight: tab.id !== 'former' ? '1px solid var(--border)' : 'none',
+                  borderBottom: active ? '2px solid var(--gold)' : '2px solid transparent',
+                  background: active ? 'rgba(200,169,106,0.12)' : 'transparent',
+                  color: active ? 'var(--gold-light)' : 'var(--charcoal-light)',
+                  cursor: 'pointer',
+                  fontFamily: 'Cinzel, serif',
+                  fontSize: '13px',
+                  letterSpacing: '1.5px',
+                  lineHeight: 1.35,
+                  padding: '14px 10px',
+                  textTransform: 'uppercase'
+                }}
+              >
+                <span style={{ display: 'block' }}>{tab.label}</span>
+                <span style={{ display: 'block', fontFamily: 'Lato, sans-serif', fontSize: '12px', letterSpacing: 0, marginTop: '3px' }}>{tab.count}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div style={{ padding: '1.25rem' }}>
+          {loading && <div className="loading">Loading...</div>}
+
+          {!loading && activeTab === 'current' && renderGroup('Current Members', paidMembers, 'No current members found yet.', 'Active members and coaches with normal app access.')}
+
+          {!loading && activeTab === 'leads' && (
+            <>
+              {renderGroup('Leads', leads, 'No lead profiles yet.', 'People who have an account but are not on a free trial or paid membership.')}
+              <div style={{ height: '1rem' }} />
+              {renderGroup('Free Trials', freeTrials, 'No active free trials right now.', 'Trial athletes should stay here until they convert or finish their 3 classes.')}
+            </>
+          )}
+
+          {!loading && activeTab === 'former' && renderGroup('Former Members', hiddenFormerMembers, 'No former members yet.', 'Archived members stay here so they do not count against current member or lead reporting.')}
+        </div>
       </div>
 
       {notifications.length > 0 && (
@@ -214,19 +261,6 @@ export default function CRM({ user }) {
           <button className="btn-moss" onClick={broadcastSMS}>Text All Members</button>
         </div>
       </div>
-
-      {loading && <div className="loading">Loading...</div>}
-
-      {activeTab === 'current' && renderGroup('Current Members', paidMembers, 'No current members found yet.', 'Active members and coaches with normal app access.')}
-
-      {activeTab === 'leads' && (
-        <>
-          {renderGroup('Leads', leads, 'No lead profiles yet.', 'People who have an account but are not on a free trial or paid membership.')}
-          {renderGroup('Free Trials', freeTrials, 'No active free trials right now.', 'Trial athletes should stay here until they convert or finish their 3 classes.')}
-        </>
-      )}
-
-      {activeTab === 'former' && renderGroup('Former Members', hiddenFormerMembers, 'No former members yet.', 'Archived members stay here so they do not count against current member or lead reporting.')}
 
       {toast && <div className="toast">{toast}</div>}
 
