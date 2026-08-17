@@ -68,6 +68,8 @@ Score type must be one of: No Score, Heaviest Set, For Time, AMRAP, Max Reps / C
 Infer score type from context: if it is a timed workout use For Time, if it has weights use Heaviest Set, if it is rounds use AMRAP, otherwise No Score.
 
 If sets are written like 3x5 at 80% create 3 set objects each with reps 5 and load 80%.
+If this looks like a completed private-client training sheet with handwritten weights or results, treat those handwritten weights/results as the completed values and put them in load. Preserve any extra notes in notes fields.
+If a set has both reps and a completed weight, put reps in reps and the completed weight in load.
 If no sets are specified return an empty sets array.
 Return ONLY the JSON object.`
             }
