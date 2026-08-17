@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabaseClient'
 import VideoModal from './VideoModal'
+import { notifyCoach } from '../utils/notifyCoach'
 import { canSeeWorkouts } from '../utils/access'
 import { PRESCRIPTION_TYPES, getPrescriptionMeta, formatPrescriptionValue } from '../utils/prescriptionTypes'
 
@@ -33,6 +34,98 @@ function composeWorkoutNotes(cycle, notes) {
 
 function workoutCycle(pw, fallback = 'Current Cycle') {
   return parseWorkoutNotes(pw?.workouts?.notes).cycle || fallback
+}
+
+function dateFromWorkoutTitle(title = '') {
+  const text = String(title || '')
+  const currentYear = new Date().getFullYear()
+
+  const numeric = text.match(/\b(1[0-2]|0?[1-9])[/-](3[01]|[12]\d|0?[1-9])(?:[/-]((?:20)?\d{2}))?\b/)
+  if (numeric) {
+    const month = parseInt(numeric[1], 10)
+    const day = parseInt(numeric[2], 10)
+    let year = numeric[3] ? parseInt(numeric[3], 10) : currentYear
+    if (year < 100) year += 2000
+    const parsed = new Date(year, month - 1, day)
+    if (!Number.isNaN(parsed.getTime())) return parsed.getTime()
+  }
+
+  const monthNames = {
+    jan: 0, january: 0,
+    feb: 1, february: 1,
+    mar: 2, march: 2,
+    apr: 3, april: 3,
+    may: 4,
+    jun: 5, june: 5,
+    jul: 6, july: 6,
+    aug: 7, august: 7,
+    sep: 8, sept: 8, september: 8,
+    oct: 9, october: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11
+  }
+  const named = text.match(/\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+([0-3]?\d)(?:st|nd|rd|th)?(?:,\s*((?:20)?\d{2}))?\b/i)
+  if (named) {
+    const month = monthNames[named[1].toLowerCase()]
+    const day = parseInt(named[2], 10)
+    let year = named[3] ? parseInt(named[3], 10) : currentYear
+    if (year < 100) year += 2000
+    const parsed = new Date(year, month, day)
+    if (!Number.isNaN(parsed.getTime())) return parsed.getTime()
+  }
+
+  return 0
+}
+
+function programWorkoutSortValue(pw) {
+  if (pw?.workouts?.date) {
+    const dateValue = new Date(`${pw.workouts.date}T00:00:00`).getTime()
+    if (!Number.isNaN(dateValue)) return dateValue
+  }
+  const titleDate = dateFromWorkoutTitle(pw?.workouts?.title)
+  if (titleDate) return titleDate
+  if (pw?.completed_at) {
+    const completedValue = new Date(pw.completed_at).getTime()
+    if (!Number.isNaN(completedValue)) return completedValue
+  }
+  return Number(pw?.order_index || 0)
+}
+
+function sortProgramWorkoutsMostRecentFirst(rows = []) {
+  return [...rows].sort((a, b) => programWorkoutSortValue(b) - programWorkoutSortValue(a))
+}
+
+function photoSetLogValue(set = {}) {
+  const load = String(set.load || set.value || set.result || '').trim()
+  const reps = String(set.reps || '').trim()
+  const rpe = String(set.rpe || '').trim()
+  if (load && reps && rpe) return `${load} x ${reps} @ RPE ${rpe}`
+  if (load && reps) return `${load} x ${reps}`
+  if (load && rpe) return `${load} @ RPE ${rpe}`
+  if (load) return load
+  if (reps && rpe) return `${reps} @ RPE ${rpe}`
+  if (reps) return reps
+  if (rpe) return `RPE ${rpe}`
+  return ''
+}
+
+function summarizePhotoWorkout(sections = []) {
+  const movementSummaries = []
+  sections.forEach(sec => {
+    ;(sec.movements || []).forEach(mov => {
+      if (!mov.name) return
+      const loggedSets = (mov.sets || [])
+        .map((set, idx) => {
+          const value = photoSetLogValue(set)
+          return value ? `S${set.set_number || idx + 1}: ${value}` : ''
+        })
+        .filter(Boolean)
+      if (loggedSets.length) movementSummaries.push(`${mov.name}: ${loggedSets.join(', ')}`)
+    })
+  })
+  const summary = movementSummaries.join(' | ')
+  if (!summary) return 'Logged complete from uploaded workout photo.'
+  return summary.length > 900 ? `${summary.slice(0, 897)}...` : summary
 }
 
 export default function Programs({ user, profile }) {
@@ -74,6 +167,24 @@ export default function Programs({ user, profile }) {
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2500) }
 
+  const notifyProgramCompleted = async (programWorkout, note = '') => {
+    const athleteName = selectedProgram?.profiles?.name || profile?.name || 'An athlete'
+    const workoutTitle = programWorkout?.workouts?.title || 'a program workout'
+    const message = `${athleteName} completed ${workoutTitle}${selectedProgram?.name ? ` in ${selectedProgram.name}` : ''}.`
+
+    await supabase.from('notifications').insert({
+      message,
+      type: 'program_workout_completed',
+      athlete_id: selectedProgram?.athlete_id || user.id
+    })
+
+    await notifyCoach(
+      'Program Workout Complete',
+      note ? `${message} Note: ${note}` : message,
+      { tag: 'srb-program-complete' }
+    )
+  }
+
   const fetchPrograms = useCallback(async () => {
     setLoading(true)
     if (!hasProgramAccess) {
@@ -98,7 +209,7 @@ export default function Programs({ user, profile }) {
   const fetchProgramWorkouts = useCallback(async (programId) => {
     const { data } = await supabase
       .from('program_workouts')
-      .select('*, workouts(id, title, notes, track, workout_sections(*, section_logs(*), movements(*, sets(*, set_logs(*)))))')
+      .select('*, workouts(id, title, date, notes, track, workout_sections(*, section_logs(*), movements(*, sets(*, set_logs(*)))))')
       .eq('program_id', programId)
       .order('order_index')
     setProgramWorkouts(data || [])
@@ -174,6 +285,9 @@ export default function Programs({ user, profile }) {
 
   const saveWorkoutToProgram = async () => {
     if (!wTitle.trim()) { showToast('Title is required'); return }
+    const isPhotoWorkout = addMode === 'photo'
+    const athleteId = selectedProgram.athlete_id || user.id
+    const photoLogRows = []
     const { data: workout, error: wErr } = await supabase.from('workouts')
       .insert({ title: wTitle.trim(), notes: composeWorkoutNotes(wCycle || selectedProgram.name, wNotes), track: 'Private', assigned_athlete_id: selectedProgram.athlete_id })
       .select().single()
@@ -189,14 +303,50 @@ export default function Programs({ user, profile }) {
         const { data: movement } = await supabase.from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, demo_url: mov.demo_url || null, scheme: mov.scheme || 'reps', order_index: mi }).select().single()
         if (!movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
-        if (validSets.length > 0) await supabase.from('sets').insert(validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx })))
+        if (validSets.length > 0) {
+          const setRows = validSets.map((st, idx) => ({ movement_id: movement.id, set_number: st.set_number, reps: st.reps, load: st.load, rpe: st.rpe, order_index: idx }))
+          const { data: createdSets } = await supabase.from('sets').insert(setRows).select()
+          if (isPhotoWorkout && createdSets?.length) {
+            createdSets.forEach((createdSet, idx) => {
+              const value = photoSetLogValue(validSets[idx])
+              if (!value) return
+              photoLogRows.push({
+                set_id: createdSet.id,
+                movement_id: movement.id,
+                workout_id: workout.id,
+                athlete_id: athleteId,
+                value
+              })
+            })
+          }
+        }
       }
     }
     const nextOrder = programWorkouts.length + 1
-    await supabase.from('program_workouts').insert({ program_id: selectedProgram.id, workout_id: workout.id, order_index: nextOrder })
+    const programWorkoutPayload = {
+      program_id: selectedProgram.id,
+      workout_id: workout.id,
+      order_index: nextOrder
+    }
+
+    if (isPhotoWorkout) {
+      programWorkoutPayload.completed_at = new Date().toISOString()
+      programWorkoutPayload.completed_by = athleteId
+      programWorkoutPayload.completion_note = photoLogRows.length ? summarizePhotoWorkout(wSecs) : 'Logged complete from uploaded workout photo.'
+    }
+
+    const { error: pwErr } = await supabase
+      .from('program_workouts')
+      .insert(programWorkoutPayload)
+
+    if (pwErr) { showToast('Error: ' + pwErr.message); return }
+    if (isPhotoWorkout && photoLogRows.length) {
+      const { error: logErr } = await supabase.from('set_logs').upsert(photoLogRows, { onConflict: 'set_id,athlete_id' })
+      if (logErr) showToast('Workout saved, but set logs need review: ' + logErr.message)
+    }
     fetchProgramWorkouts(selectedProgram.id)
     setAddMode(null); setWTitle(''); setWCycle(''); setWNotes(''); setWSecs([newSec()]); setImagePreview(null)
-    showToast('Workout added!')
+    showToast(isPhotoWorkout ? 'Photo workout logged complete!' : 'Workout added!')
   }
 
   const addExistingWorkout = async () => {
@@ -277,6 +427,7 @@ export default function Programs({ user, profile }) {
   const logComplete = async () => {
     if (!loggingPw) return
     await supabase.from('program_workouts').update({ completed_at: new Date(logDate).toISOString(), completed_by: user.id, completion_note: logNote }).eq('id', loggingPw.id)
+    if (!isCoach) await notifyProgramCompleted(loggingPw, logNote)
     setLoggingPw(null); setLogNote('')
     fetchProgramWorkouts(selectedProgram.id); showToast('Logged!')
   }
@@ -331,8 +482,8 @@ export default function Programs({ user, profile }) {
     return { ...m, sets: next }
   }) } : x))
   const completedCount = programWorkouts.filter(pw => pw.completed_at).length
-  const activeProgramWorkouts = programWorkouts.filter(pw => !pw.completed_at)
-  const completedProgramWorkouts = programWorkouts.filter(pw => pw.completed_at)
+  const activeProgramWorkouts = sortProgramWorkoutsMostRecentFirst(programWorkouts.filter(pw => !pw.completed_at))
+  const completedProgramWorkouts = sortProgramWorkoutsMostRecentFirst(programWorkouts.filter(pw => pw.completed_at))
   const cycleGroups = activeProgramWorkouts.reduce((groups, pw) => {
     const cycle = workoutCycle(pw, selectedProgram?.name || 'Current Cycle')
     if (!groups[cycle]) groups[cycle] = []
