@@ -3,14 +3,14 @@ import React, { useState, useEffect, useRef } from 'react'
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
 
 const NAV_ITEMS = [
-  { id: 'today', label: 'Today', icon: '☉', coachOnly: false },
-  { id: 'workouts', label: 'Workouts', icon: '🏋️', coachOnly: false },
-  { id: 'schedule', label: 'Schedule', icon: '📅', coachOnly: false },
+  { id: 'today', label: 'Training', icon: '☉', coachOnly: false },
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
   { id: 'resources', label: 'Resources', icon: '🔗', coachOnly: false },
   { id: 'shop', label: 'Shop', icon: '🛍️', coachOnly: false },
   { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
   { id: 'command', label: 'Command Center', icon: '⌁', coachOnly: true },
+  { id: 'workouts', label: 'Workouts', icon: '🏋️', coachOnly: true },
+  { id: 'schedule', label: 'Schedule', icon: '📅', coachOnly: true },
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
   { id: 'sheet-import', label: 'Import Sheet', icon: '📄', coachOnly: true },
