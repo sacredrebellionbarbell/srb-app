@@ -5,6 +5,7 @@ import {
   FREE_TRIAL_CLASS_LIMIT,
   canSeeWorkouts,
   hasClassAccess,
+  hasOpenGymAccess,
   hasPrivateTrainingAccess,
   isCoach as profileIsCoach,
   isFreeTrial
@@ -18,6 +19,14 @@ const TRACK_CLASS = {
   'All Tracks': 'track-open'
 }
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+const CHECKIN_TIMES = [
+  '12:00 AM','1:00 AM','2:00 AM','3:00 AM','4:00 AM','5:00 AM',
+  '6:00 AM','7:00 AM','8:00 AM','9:00 AM','10:00 AM','11:00 AM',
+  '12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM',
+  '6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'
+]
+const DEFAULT_OPEN_GYM_DURATION = 60
+const DEFAULT_OPEN_GYM_CAPACITY = 1
 
 function toISO(d) { return d.toISOString().split('T')[0] }
 function parseISO(dateStr) { return new Date(dateStr + 'T12:00:00') }
@@ -26,6 +35,84 @@ function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long',
 function shortDate(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }
 function getDayOfWeek(dateStr) { return DAYS[parseISO(dateStr).getDay()] }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
+
+function timeInputToLabel(value) {
+  if (!value) return ''
+  const [h, m] = value.split(':')
+  const hr = parseInt(h, 10)
+  return `${hr > 12 ? hr - 12 : hr === 0 ? 12 : hr}:${m} ${hr >= 12 ? 'PM' : 'AM'}`
+}
+
+function labelToMinutes(value) {
+  if (!value) return null
+  const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (!match) return null
+  let hour = parseInt(match[1], 10)
+  const minute = parseInt(match[2], 10)
+  const period = match[3].toUpperCase()
+  if (period === 'PM' && hour !== 12) hour += 12
+  if (period === 'AM' && hour === 12) hour = 0
+  return hour * 60 + minute
+}
+
+function inputTimeToMinutes(value) {
+  if (!value) return null
+  const [h, m] = value.split(':')
+  return parseInt(h, 10) * 60 + parseInt(m, 10)
+}
+
+function minutesToInputTime(minutes) {
+  const normalized = ((minutes % 1440) + 1440) % 1440
+  const hour = Math.floor(normalized / 60)
+  const minute = normalized % 60
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function defaultOpenGymSlots() {
+  return CHECKIN_TIMES.map(label => {
+    const startMinutes = labelToMinutes(label)
+    const startTime = minutesToInputTime(startMinutes)
+    return {
+      id: `default-${startTime}`,
+      slot_key: `default-${startTime}`,
+      start_time: startTime,
+      duration_minutes: DEFAULT_OPEN_GYM_DURATION,
+      capacity: DEFAULT_OPEN_GYM_CAPACITY,
+      recurrence_days: DAYS.join(','),
+      notes: '',
+      active: true,
+      defaultSlot: true
+    }
+  })
+}
+
+function classWindow(cls) {
+  if (cls.start_time) {
+    const start = new Date(cls.start_time)
+    return { start: start.getHours() * 60 + start.getMinutes(), end: start.getHours() * 60 + start.getMinutes() + (cls.duration_minutes || 60) }
+  }
+  const start = labelToMinutes(cls.recurrence_time)
+  if (start == null) return null
+  return { start, end: start + (cls.duration_minutes || 60) }
+}
+
+function slotWindow(row) {
+  const start = inputTimeToMinutes(row.start_time)
+  if (start == null) return null
+  return { start, end: start + (row.duration_minutes || 60) }
+}
+
+function windowsOverlap(a, b) {
+  if (!a || !b) return false
+  return a.start < b.end && b.start < a.end
+}
+
+function rowRepeatsToday(row, dayOfWeek, isoDate) {
+  if (!row.active && row.active !== undefined) return false
+  if (row.slot_date || row.block_date) return (row.slot_date || row.block_date) === isoDate
+  const days = (row.recurrence_days || '').split(',').map(d => d.trim()).filter(Boolean)
+  return days.includes(dayOfWeek)
+}
 
 function timeLabel(cls) {
   if (cls.recurrence_time) return cls.recurrence_time
@@ -81,13 +168,17 @@ export default function Today({ user, profile, setTab }) {
   const isTrial = isFreeTrial(profile)
   const workoutAccess = canSeeWorkouts(profile)
   const classAccess = hasClassAccess(profile)
+  const openGymAccess = hasOpenGymAccess(profile)
   const [workouts, setWorkouts] = useState([])
   const [classes, setClasses] = useState([])
   const [trialUses, setTrialUses] = useState(0)
   const [openGymBookings, setOpenGymBookings] = useState([])
+  const [openGymSlots, setOpenGymSlots] = useState([])
+  const [openGymBlocks, setOpenGymBlocks] = useState([])
+  const [openGymAvailable, setOpenGymAvailable] = useState(true)
+  const [showOpenGymPicker, setShowOpenGymPicker] = useState(false)
   const [signupTrack, setSignupTrack] = useState(null)
-  const [weeklyClasses, setWeeklyClasses] = useState([])
-  const [loadingWeek, setLoadingWeek] = useState(false)
+  const [signupClasses, setSignupClasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
 
@@ -207,37 +298,52 @@ export default function Today({ user, profile, setTab }) {
   const fetchOpenGymBookings = useCallback(async () => {
     const { data } = await supabase
       .from('open_gym_bookings')
-      .select('*')
-      .eq('athlete_id', user.id)
+      .select('*, profiles(name, avatar_url)')
       .eq('booking_date', iso)
 
     setOpenGymBookings(data || [])
   }, [iso, user.id])
 
+  const fetchOpenGymRules = useCallback(async () => {
+    const { data: slots, error: slotsError } = await supabase
+      .from('open_gym_slots')
+      .select('*')
+      .eq('active', true)
+      .order('start_time', { ascending: true })
+
+    const { data: blocks, error: blocksError } = await supabase
+      .from('open_gym_blocks')
+      .select('*')
+      .eq('active', true)
+
+    if (slotsError || blocksError) {
+      setOpenGymAvailable(false)
+      setOpenGymSlots([])
+      setOpenGymBlocks([])
+      return
+    }
+
+    setOpenGymAvailable(true)
+    setOpenGymSlots(slots || [])
+    setOpenGymBlocks(blocks || [])
+  }, [])
+
   const refresh = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchWorkouts(), fetchClasses(), fetchTrialUses(), fetchOpenGymBookings()])
+    await Promise.all([fetchWorkouts(), fetchClasses(), fetchTrialUses(), fetchOpenGymBookings(), fetchOpenGymRules()])
     setLoading(false)
-  }, [fetchClasses, fetchOpenGymBookings, fetchTrialUses, fetchWorkouts])
+  }, [fetchClasses, fetchOpenGymBookings, fetchOpenGymRules, fetchTrialUses, fetchWorkouts])
 
   useEffect(() => { refresh() }, [refresh])
 
   useEffect(() => {
     if (!signupTrack) {
-      setWeeklyClasses([])
+      setSignupClasses([])
       return
     }
 
-    const fetchWeek = async () => {
-      setLoadingWeek(true)
-      const dates = Array.from({ length: 7 }, (_, i) => addDays(currentDate, i))
-      const rows = (await Promise.all(dates.map(d => classesForDate(d)))).flat()
-      setWeeklyClasses(rows.filter(cls => classTrackMatches(cls.track, signupTrack)))
-      setLoadingWeek(false)
-    }
-
-    fetchWeek()
-  }, [classesForDate, currentDate, signupTrack])
+    setSignupClasses(classes.filter(cls => classTrackMatches(cls.track, signupTrack)))
+  }, [classes, signupTrack])
 
   const sortedWorkouts = useMemo(() => {
     return [...workouts].sort((a, b) => {
@@ -254,6 +360,30 @@ export default function Today({ user, profile, setTab }) {
   })
   const canSignUp = classAccess || (isTrial && trialUses < FREE_TRIAL_CLASS_LIMIT)
   const trialRemaining = Math.max(FREE_TRIAL_CLASS_LIMIT - trialUses, 0)
+  const todaysClassWindows = classes.map(cls => classWindow(cls)).filter(Boolean)
+  const todaysBlocks = openGymBlocks.filter(block => rowRepeatsToday(block, dayOfWeek, iso))
+  const openGymSlotsToday = [...defaultOpenGymSlots(), ...openGymSlots]
+    .filter(slot => rowRepeatsToday(slot, dayOfWeek, iso))
+    .map(slot => {
+      const window = slotWindow(slot)
+      const bookings = openGymBookings.filter(booking =>
+        slot.defaultSlot ? booking.slot_key === slot.slot_key : booking.slot_id === slot.id
+      )
+      const conflictingClass = todaysClassWindows.some(classTime => windowsOverlap(window, classTime))
+      const conflictingBlock = todaysBlocks.some(block => windowsOverlap(window, slotWindow(block)))
+      const unavailableReason = conflictingClass ? 'Class/private coaching time' : conflictingBlock ? 'Blocked by coach' : ''
+      return { ...slot, window, bookings, unavailable: conflictingClass || conflictingBlock, unavailableReason }
+    })
+  const availableOpenGymSlots = openGymSlotsToday.filter(slot => {
+    const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
+    const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
+    return myBooking || (!slot.unavailable && spots > 0)
+  })
+  const myOpenGymBookings = openGymSlotsToday.flatMap(slot =>
+    (slot.bookings || [])
+      .filter(booking => booking.athlete_id === user.id)
+      .map(booking => ({ ...booking, slot }))
+  )
 
   const prevDay = () => setCurrentDate(d => addDays(d, -1))
   const nextDay = () => setCurrentDate(d => addDays(d, 1))
@@ -281,9 +411,8 @@ export default function Today({ user, profile, setTab }) {
     showToast('Signed up!')
     await refresh()
     if (signupTrack) {
-      const dates = Array.from({ length: 7 }, (_, i) => addDays(currentDate, i))
-      const rows = (await Promise.all(dates.map(d => classesForDate(d)))).flat()
-      setWeeklyClasses(rows.filter(row => classTrackMatches(row.track, signupTrack)))
+      const rows = await classesForDate(currentDate)
+      setSignupClasses(rows.filter(row => classTrackMatches(row.track, signupTrack)))
     }
   }
 
@@ -297,6 +426,48 @@ export default function Today({ user, profile, setTab }) {
   const cancelOpenGym = async bookingId => {
     await supabase.from('open_gym_bookings').delete().eq('id', bookingId)
     showToast('Open Gym booking removed')
+    fetchOpenGymBookings()
+  }
+
+  const bookOpenGymSlot = async slot => {
+    if (!openGymAccess) { showToast('Open Gym access is for active Open Gym or Class Access members only.'); return }
+    if (!profile?.waiver_signed) { showToast('Please sign the waiver first.'); return }
+    if (slot.unavailable) { showToast('That Open Gym time is not available.'); return }
+    if ((slot.bookings?.length || 0) >= (slot.capacity || 1)) { showToast('That Open Gym time is full.'); return }
+
+    const bookingPayload = {
+      athlete_id: user.id,
+      booking_date: iso
+    }
+
+    if (slot.defaultSlot) {
+      bookingPayload.slot_key = slot.slot_key
+      bookingPayload.slot_start_time = slot.start_time
+      bookingPayload.slot_duration_minutes = slot.duration_minutes
+    } else {
+      bookingPayload.slot_id = slot.id
+    }
+
+    const { error } = await supabase.from('open_gym_bookings').insert(bookingPayload)
+
+    if (error) {
+      showToast('Already booked')
+      return
+    }
+
+    await supabase.from('notifications').insert({
+      message: `${profile?.name || 'An athlete'} booked Open Gym for ${timeInputToLabel(slot.start_time)} on ${formatDate(currentDate)}`,
+      type: 'open_gym_booking',
+      athlete_id: user.id
+    })
+
+    await notifyCoach(
+      'Open Gym Booked',
+      `${profile?.name || 'An athlete'} booked Open Gym for ${timeInputToLabel(slot.start_time)} on ${formatDate(currentDate)}.`
+    )
+
+    showToast('Open Gym booked!')
+    setShowOpenGymPicker(false)
     fetchOpenGymBookings()
   }
 
@@ -394,18 +565,24 @@ export default function Today({ user, profile, setTab }) {
 
             <div className="pc">
               <div className="pc-title">Open Gym</div>
-              {openGymBookings.length > 0 ? (
+              {!openGymAvailable && (
+                <p className="no-data" style={{ paddingTop: 0 }}>Open Gym scheduling needs setup before it can show available windows here.</p>
+              )}
+              {openGymAvailable && myOpenGymBookings.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {openGymBookings.map(booking => (
+                  {myOpenGymBookings.map(booking => (
                     <button key={booking.id} className="btn-ghost" onClick={() => cancelOpenGym(booking.id)}>
-                      Booked {booking.slot_start_time || 'today'} - cancel
+                      Booked {timeInputToLabel(booking.slot.start_time)} - cancel
                     </button>
                   ))}
                 </div>
-              ) : (
+              ) : openGymAvailable ? (
                 <p className="no-data" style={{ paddingTop: 0 }}>No Open Gym booking for this day.</p>
-              )}
-              <button className="btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => setTab('schedule')}>Open Gym Times</button>
+              ) : null}
+              <button className="btn-sm" style={{ width: '100%', marginTop: '10px' }} onClick={() => setShowOpenGymPicker(true)} disabled={!openGymAccess || availableOpenGymSlots.length === 0}>
+                Check In for Open Gym
+              </button>
+              {isCoach && <button className="btn-ghost" style={{ width: '100%', marginTop: '8px' }} onClick={() => setTab('schedule')}>Manage Open Gym</button>}
             </div>
           </div>
         </div>
@@ -417,29 +594,35 @@ export default function Today({ user, profile, setTab }) {
             <div className="modal-head">
               <div>
                 <div className="modal-title">Sign Up</div>
-                <div className="modal-sub">{signupTrack} classes for the next 7 days</div>
+                <div className="modal-sub">{signupTrack} classes on {shortDate(currentDate)}</div>
               </div>
               <button className="modal-close" onClick={() => setSignupTrack(null)}>x</button>
             </div>
             <div className="modal-body">
-              {loadingWeek ? (
-                <div className="loading" style={{ minHeight: '120px' }}>Loading class times...</div>
-              ) : (
-                <ClassSignupPanel
-                  title="Available Times"
-                  classes={weeklyClasses}
-                  userId={user.id}
-                  canSignUp={canSignUp}
-                  isCoach={isCoach}
-                  onSignup={signup}
-                  onCancel={cancelSignup}
-                  showDates
-                  showRosters
-                />
-              )}
+              <ClassSignupPanel
+                title="Available Times"
+                classes={signupClasses}
+                userId={user.id}
+                canSignUp={canSignUp}
+                isCoach={isCoach}
+                onSignup={signup}
+                onCancel={cancelSignup}
+                showRosters
+              />
             </div>
           </div>
         </div>
+      )}
+
+      {showOpenGymPicker && (
+        <OpenGymPickerModal
+          slots={availableOpenGymSlots}
+          user={user}
+          openGymAccess={openGymAccess}
+          onBook={bookOpenGymSlot}
+          onCancelBooking={cancelOpenGym}
+          onClose={() => setShowOpenGymPicker(false)}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}
@@ -524,6 +707,11 @@ function TodayStyles() {
       .today-roster{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
       .today-roster span{border:1px solid rgba(200,169,106,0.16);background:rgba(245,240,232,0.04);color:var(--charcoal-light);border-radius:2px;padding:2px 6px;font-size:11px}
       .today-roster .checked{border-color:var(--moss);color:var(--moss-light)}
+      .today-open-gym-list{display:flex;flex-direction:column;gap:10px}
+      .today-open-gym-slot{display:flex;justify-content:space-between;align-items:center;gap:12px;background:rgba(245,240,232,0.035);border:1px solid rgba(200,169,106,0.14);border-radius:4px;padding:11px 12px}
+      .today-open-gym-time{font-family:'Cinzel',serif;color:var(--gold-light);font-size:17px;letter-spacing:1px}
+      .today-open-gym-meta{color:var(--charcoal-light);font-size:12px;margin-top:3px}
+      .today-open-gym-notes{color:var(--rose-light);font-size:12px;margin-top:4px;font-style:italic}
       @media(max-width:820px){.today-grid{grid-template-columns:1fr}.today-hero{align-items:flex-start}.today-hero h2{font-size:23px}.today-avatar,.today-avatar-placeholder{width:52px;height:52px}.today-class-row{align-items:flex-start;flex-direction:column}.today-class-row button{width:100%}}
     `}</style>
   )
@@ -531,6 +719,45 @@ function TodayStyles() {
 
 function signupsForClass(cls) {
   return cls.recurring ? cls.instance?.instance_signups || [] : cls.class_signups || []
+}
+
+function OpenGymPickerModal({ slots, user, openGymAccess, onBook, onCancelBooking, onClose }) {
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal" style={{ maxWidth: '560px' }}>
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">Open Gym</div>
+            <div className="modal-sub">Choose an available one-hour window.</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>x</button>
+        </div>
+        <div className="modal-body">
+          {slots.length === 0 && <p className="no-data">No Open Gym times are available for this day.</p>}
+          <div className="today-open-gym-list">
+            {slots.map(slot => {
+              const myBooking = slot.bookings?.find(booking => booking.athlete_id === user.id)
+              const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
+              const endMinutes = inputTimeToMinutes(slot.start_time) + (slot.duration_minutes || 60)
+              return (
+                <div key={slot.id} className="today-open-gym-slot">
+                  <div>
+                    <div className="today-open-gym-time">{timeInputToLabel(slot.start_time)} - {timeInputToLabel(minutesToInputTime(endMinutes))}</div>
+                    <div className="today-open-gym-meta">{spots} spot{spots !== 1 ? 's' : ''} open</div>
+                    {slot.notes && <div className="today-open-gym-notes">{slot.notes}</div>}
+                  </div>
+                  {myBooking
+                    ? <button className="btn-ghost" onClick={() => onCancelBooking(myBooking.id)}>Cancel</button>
+                    : <button className="btn-sm" onClick={() => onBook(slot)} disabled={!openGymAccess}>Check In</button>
+                  }
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup, onCancel, showDates = false, showRosters = false }) {
