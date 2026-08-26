@@ -160,6 +160,15 @@ function summarizeWorkout(workout, userId) {
   }
 }
 
+function formatSetPrescription(set, movement) {
+  const parts = []
+  if (set.reps) parts.push(set.reps)
+  if (set.load) parts.push(`@ ${set.load}`)
+  if (set.rpe) parts.push(`RPE ${set.rpe}`)
+  if (!parts.length && movement?.notes) return movement.notes
+  return parts.join(' ')
+}
+
 export default function Today({ user, profile, setTab }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const iso = toISO(currentDate)
@@ -654,14 +663,30 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogging }) {
           <div key={section.id} className="section-block">
             <div className="section-block-title">{section.type}</div>
             {section.notes && <p className="section-block-notes">{section.notes}</p>}
-            {(section.movements || []).sort((a, b) => a.order_index - b.order_index).slice(0, 6).map(movement => {
+            {(section.movements || []).sort((a, b) => a.order_index - b.order_index).map(movement => {
               const hasLog = (movement.sets || []).some(set => (set.set_logs || []).some(log => log.athlete_id === userId && log.value))
+              const sortedSets = [...(movement.sets || [])].sort((a, b) => a.order_index - b.order_index)
               return (
                 <div key={movement.id} className="today-movement-row">
                   <span>{hasLog ? '✓' : '○'}</span>
                   <div>
                     <strong>{movement.name}</strong>
                     {movement.notes && <small>{movement.notes}</small>}
+                    {sortedSets.length > 0 && (
+                      <div className="today-set-list">
+                        {sortedSets.map(set => {
+                          const prescription = formatSetPrescription(set, movement)
+                          const myLog = (set.set_logs || []).find(log => log.athlete_id === userId && log.value)
+                          return (
+                            <div key={set.id} className="today-set-row">
+                              <span>Set {set.set_number}</span>
+                              <strong>{prescription || 'No prescription'}</strong>
+                              {myLog?.value && <em>Logged: {myLog.value}</em>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -699,6 +724,11 @@ function TodayStyles() {
       .today-movement-row>span{color:var(--moss-light);font-family:'Cinzel',serif;width:20px;flex-shrink:0}
       .today-movement-row strong{display:block;color:var(--bone);font-weight:400}
       .today-movement-row small{display:block;color:var(--charcoal-light);font-size:13px;line-height:1.45;margin-top:3px}
+      .today-set-list{display:flex;flex-direction:column;gap:5px;margin-top:8px}
+      .today-set-row{display:grid;grid-template-columns:70px minmax(0,1fr) auto;gap:8px;align-items:center;background:rgba(245,240,232,0.035);border:1px solid rgba(200,169,106,0.1);border-radius:3px;padding:7px 9px;font-size:13px}
+      .today-set-row span{font-family:'Cinzel',serif;color:var(--charcoal-light);font-size:11px;letter-spacing:1px}
+      .today-set-row strong{color:var(--bone);font-size:14px}
+      .today-set-row em{color:var(--moss-light);font-style:normal;font-size:12px;text-align:right}
       .today-class-panel{margin-bottom:1rem}
       .today-class-row{display:flex;justify-content:space-between;align-items:center;gap:12px;background:rgba(245,240,232,0.035);border:1px solid rgba(200,169,106,0.14);border-radius:4px;padding:11px 12px}
       .today-class-time{font-family:'Cinzel',serif;color:var(--gold-light);font-size:17px;letter-spacing:1px}
@@ -712,7 +742,7 @@ function TodayStyles() {
       .today-open-gym-time{font-family:'Cinzel',serif;color:var(--gold-light);font-size:17px;letter-spacing:1px}
       .today-open-gym-meta{color:var(--charcoal-light);font-size:12px;margin-top:3px}
       .today-open-gym-notes{color:var(--rose-light);font-size:12px;margin-top:4px;font-style:italic}
-      @media(max-width:820px){.today-grid{grid-template-columns:1fr}.today-hero{align-items:flex-start}.today-hero h2{font-size:23px}.today-avatar,.today-avatar-placeholder{width:52px;height:52px}.today-class-row{align-items:flex-start;flex-direction:column}.today-class-row button{width:100%}}
+      @media(max-width:820px){.today-grid{grid-template-columns:1fr}.today-hero{align-items:flex-start}.today-hero h2{font-size:23px}.today-avatar,.today-avatar-placeholder{width:52px;height:52px}.today-class-row{align-items:flex-start;flex-direction:column}.today-class-row button{width:100%}.today-set-row{grid-template-columns:60px minmax(0,1fr)}.today-set-row em{grid-column:2;text-align:left}}
     `}</style>
   )
 }
