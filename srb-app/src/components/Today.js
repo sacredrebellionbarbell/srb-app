@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { notifyCoach } from '../utils/notifyCoach'
+import { formatPrescriptionValue } from '../utils/prescriptionTypes'
 import {
   FREE_TRIAL_CLASS_LIMIT,
   canSeeWorkouts,
@@ -35,6 +36,7 @@ function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long',
 function shortDate(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }
 function getDayOfWeek(dateStr) { return DAYS[parseISO(dateStr).getDay()] }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
+function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }
 
 function timeInputToLabel(value) {
   if (!value) return ''
@@ -160,13 +162,33 @@ function summarizeWorkout(workout, userId) {
   }
 }
 
-function formatSetPrescription(set, movement) {
-  const parts = []
-  if (set.reps) parts.push(set.reps)
-  if (set.load) parts.push(`@ ${set.load}`)
-  if (set.rpe) parts.push(`RPE ${set.rpe}`)
-  if (!parts.length && movement?.notes) return movement.notes
-  return parts.join(' ')
+function isMissValue(value) {
+  return /\bmiss\b/i.test(value || '')
+}
+
+function displaySetLogValue(value) {
+  return (value || '').replace(/\s+-\s+(Made|Miss)$/i, '')
+}
+
+function formatSetLogValue(value, made) {
+  const clean = (value || '').trim()
+  if (!clean) return ''
+  return `${clean} - ${made ? 'Made' : 'Miss'}`
+}
+
+function summarizeSets(sets, scheme) {
+  if (!sets?.length) return ''
+  const first = sets[0]
+  const same = sets.every(set => set.reps === first.reps && set.load === first.load && set.rpe === first.rpe)
+  if (same) {
+    const pieces = [
+      `${sets.length} x ${formatPrescriptionValue(first.reps || '', scheme) || '?'}`,
+      first.load && `@ ${first.load}`,
+      first.rpe && `RPE ${first.rpe}`
+    ].filter(Boolean)
+    return pieces.join(' ')
+  }
+  return `${sets.length} sets`
 }
 
 export default function Today({ user, profile, setTab }) {
@@ -188,6 +210,7 @@ export default function Today({ user, profile, setTab }) {
   const [showOpenGymPicker, setShowOpenGymPicker] = useState(false)
   const [signupTrack, setSignupTrack] = useState(null)
   const [signupClasses, setSignupClasses] = useState([])
+  const [logModal, setLogModal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
 
@@ -337,6 +360,134 @@ export default function Today({ user, profile, setTab }) {
     setOpenGymBlocks(blocks || [])
   }, [])
 
+  const ensureResultRow = async (workoutId) => {
+    const { data } = await supabase.from('results').upsert(
+      { workout_id: workoutId, athlete_id: user.id, score: 'logged' },
+      { onConflict: 'workout_id,athlete_id' }
+    ).select('*, profiles(name, avatar_url), reactions(*)').single()
+    return data
+  }
+
+  const ensureLocalResult = (workout, resultRow) => {
+    if (!resultRow) return workout.results || []
+    const results = workout.results || []
+    if (results.some(result => result.id === resultRow.id || result.athlete_id === resultRow.athlete_id)) {
+      return results.map(result => result.id === resultRow.id || result.athlete_id === resultRow.athlete_id ? { ...result, ...resultRow } : result)
+    }
+    return [...results, resultRow]
+  }
+
+  const updateSetLogsInState = (workoutId, movementId, savedLogs, resultRow) => {
+    const bySetId = new Map(savedLogs.map(log => [log.set_id, log]))
+    setWorkouts(prev => prev.map(workout => {
+      if (workout.id !== workoutId) return workout
+      return {
+        ...workout,
+        results: ensureLocalResult(workout, resultRow),
+        workout_sections: (workout.workout_sections || []).map(section => ({
+          ...section,
+          movements: (section.movements || []).map(movement => {
+            if (movement.id !== movementId) return movement
+            return {
+              ...movement,
+              sets: (movement.sets || []).map(set => {
+                const saved = bySetId.get(set.id)
+                if (!saved) return set
+                return {
+                  ...set,
+                  set_logs: [
+                    ...(set.set_logs || []).filter(log => log.athlete_id !== user.id),
+                    {
+                      ...saved,
+                      profiles: {
+                        name: profile?.name,
+                        avatar_url: profile?.avatar_url
+                      }
+                    }
+                  ]
+                }
+              })
+            }
+          })
+        }))
+      }
+    }))
+  }
+
+  const updateSectionLogInState = (workoutId, sectionId, savedLog, resultRow) => {
+    setWorkouts(prev => prev.map(workout => {
+      if (workout.id !== workoutId) return workout
+      return {
+        ...workout,
+        results: ensureLocalResult(workout, resultRow),
+        workout_sections: (workout.workout_sections || []).map(section => {
+          if (section.id !== sectionId) return section
+          return {
+            ...section,
+            section_logs: [
+              ...(section.section_logs || []).filter(log => log.athlete_id !== user.id),
+              {
+                ...savedLog,
+                profiles: {
+                  name: profile?.name,
+                  avatar_url: profile?.avatar_url
+                }
+              }
+            ]
+          }
+        })
+      }
+    }))
+  }
+
+  const logMovementSets = async (workoutId, movementId, rows) => {
+    const payload = rows
+      .filter(row => row.value.trim())
+      .map(row => ({
+        set_id: row.setId,
+        movement_id: movementId,
+        workout_id: workoutId,
+        athlete_id: user.id,
+        value: formatSetLogValue(row.value, row.made)
+      }))
+
+    if (!payload.length) {
+      showToast('Add at least one set value')
+      return false
+    }
+
+    const { data, error } = await supabase
+      .from('set_logs')
+      .upsert(payload, { onConflict: 'set_id,athlete_id' })
+      .select('*')
+
+    if (error) {
+      showToast('Error: ' + error.message)
+      return false
+    }
+
+    const resultRow = await ensureResultRow(workoutId)
+    updateSetLogsInState(workoutId, movementId, data || payload, resultRow)
+    showToast('Sets logged')
+    return true
+  }
+
+  const logSectionScore = async (sectionId, workoutId, payload) => {
+    const { data, error } = await supabase.from('section_logs').upsert(
+      { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload },
+      { onConflict: 'section_id,athlete_id' }
+    ).select('*').single()
+
+    if (error) {
+      showToast('Error: ' + error.message)
+      return
+    }
+
+    const resultRow = await ensureResultRow(workoutId)
+    updateSectionLogInState(workoutId, sectionId, data || { section_id: sectionId, workout_id: workoutId, athlete_id: user.id, ...payload }, resultRow)
+    showToast('Logged!')
+  }
+
   const refresh = useCallback(async () => {
     setLoading(true)
     await Promise.all([fetchWorkouts(), fetchClasses(), fetchTrialUses(), fetchOpenGymBookings(), fetchOpenGymRules()])
@@ -432,10 +583,40 @@ export default function Today({ user, profile, setTab }) {
     await refresh()
   }
 
+  const checkInClass = async cls => {
+    const checkin_time = currentTimeLabel()
+    if (cls.recurring) {
+      await supabase.from('instance_signups').update({ checkin_time }).match({ instance_id: cls.instance?.id, athlete_id: user.id })
+    } else {
+      await supabase.from('class_signups').update({ checkin_time }).match({ class_id: cls.id, athlete_id: user.id })
+    }
+    showToast('Checked in')
+    await refresh()
+  }
+
+  const markClassAttendance = async (cls, athleteId, attended) => {
+    if (!isCoach || !athleteId) return
+    const checkin_time = attended ? currentTimeLabel() : null
+    if (cls.recurring) {
+      await supabase.from('instance_signups').update({ checkin_time }).match({ instance_id: cls.instance?.id, athlete_id: athleteId })
+    } else {
+      await supabase.from('class_signups').update({ checkin_time }).match({ class_id: cls.id, athlete_id: athleteId })
+    }
+    showToast(attended ? 'Marked attended' : 'Attendance removed')
+    await refresh()
+  }
+
   const cancelOpenGym = async bookingId => {
     await supabase.from('open_gym_bookings').delete().eq('id', bookingId)
     showToast('Open Gym booking removed')
     fetchOpenGymBookings()
+  }
+
+  const removeOpenGymBlock = async blockId => {
+    if (!isCoach) return
+    await supabase.from('open_gym_blocks').update({ active: false }).eq('id', blockId)
+    showToast('Block removed')
+    fetchOpenGymRules()
   }
 
   const bookOpenGymSlot = async slot => {
@@ -541,7 +722,8 @@ export default function Today({ user, profile, setTab }) {
                     workout={workout}
                     userId={user.id}
                     onSignup={() => setSignupTrack(workout.track || 'All Tracks')}
-                    onOpenLogging={() => setTab('workouts')}
+                    onOpenLogSets={payload => setLogModal(payload)}
+                    onLogSectionScore={logSectionScore}
                   />
                 ))}
               </div>
@@ -569,6 +751,8 @@ export default function Today({ user, profile, setTab }) {
               isCoach={isCoach}
               onSignup={signup}
               onCancel={cancelSignup}
+              onCheckIn={checkInClass}
+              onMarkAttendance={markClassAttendance}
               showRosters
             />
 
@@ -592,6 +776,14 @@ export default function Today({ user, profile, setTab }) {
                 Check In for Open Gym
               </button>
               {isCoach && <button className="btn-ghost" style={{ width: '100%', marginTop: '8px' }} onClick={() => setTab('schedule')}>Manage Open Gym</button>}
+              {isCoach && (
+                <OpenGymBlocksList
+                  blocks={openGymBlocks}
+                  dayOfWeek={dayOfWeek}
+                  iso={iso}
+                  onRemove={removeOpenGymBlock}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -616,6 +808,8 @@ export default function Today({ user, profile, setTab }) {
                 isCoach={isCoach}
                 onSignup={signup}
                 onCancel={cancelSignup}
+                onCheckIn={checkInClass}
+                onMarkAttendance={markClassAttendance}
                 showRosters
               />
             </div>
@@ -634,12 +828,25 @@ export default function Today({ user, profile, setTab }) {
         />
       )}
 
+      {logModal && (
+        <SetLogModal
+          {...logModal}
+          userId={user.id}
+          onClose={() => setLogModal(null)}
+          onSave={async rows => {
+            const ok = await logMovementSets(logModal.workout.id, logModal.movement.id, rows)
+            if (ok) setLogModal(null)
+            return ok
+          }}
+        />
+      )}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
 
-function WorkoutPreview({ workout, userId, onSignup, onOpenLogging }) {
+function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSectionScore }) {
   const summary = summarizeWorkout(workout, userId)
 
   return (
@@ -673,10 +880,25 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogging }) {
                     <strong>{movement.name}</strong>
                     {movement.notes && <small>{movement.notes}</small>}
                     {sortedSets.length > 0 && (
+                      <div style={{ marginTop: '8px', marginBottom: '4px' }}>
+                        <button
+                          className="btn-sm"
+                          style={{ fontSize: '11px', padding: '6px 12px' }}
+                          onClick={() => onOpenLogSets({ workout, section, movement })}
+                        >
+                          Log Sets
+                        </button>
+                      </div>
+                    )}
+                    {sortedSets.length > 0 && (
                       <div className="today-set-list">
                         {sortedSets.map(set => {
-                          const prescription = formatSetPrescription(set, movement)
                           const myLog = (set.set_logs || []).find(log => log.athlete_id === userId && log.value)
+                          const prescription = [
+                            set.reps && formatPrescriptionValue(set.reps, movement.scheme),
+                            set.load && `@ ${set.load}`,
+                            set.rpe && `RPE ${set.rpe}`
+                          ].filter(Boolean).join(' ')
                           return (
                             <div key={set.id} className="today-set-row">
                               <span>Set {set.set_number}</span>
@@ -691,9 +913,27 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogging }) {
                 </div>
               )
             })}
+            {section.score_type && section.score_type !== 'No Score' && section.score_type !== 'Heaviest Set' && (
+              <SectionLogInput
+                scoreType={section.score_type}
+                myLog={(section.section_logs || []).find(log => log.athlete_id === userId)}
+                onSave={payload => onLogSectionScore(section.id, workout.id, payload)}
+              />
+            )}
+            <SectionNotesInput
+              myLog={(section.section_logs || []).find(log => log.athlete_id === userId)}
+              onSave={notes => {
+                const myLog = (section.section_logs || []).find(log => log.athlete_id === userId)
+                onLogSectionScore(section.id, workout.id, {
+                  score: myLog?.score || null,
+                  rounds: myLog?.rounds || null,
+                  reps: myLog?.reps || null,
+                  notes
+                })
+              }}
+            />
           </div>
         ))}
-        <button className="btn-primary" onClick={onOpenLogging}>Open Workout Logging</button>
       </div>
     </div>
   )
@@ -790,7 +1030,226 @@ function OpenGymPickerModal({ slots, user, openGymAccess, onBook, onCancelBookin
   )
 }
 
-function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup, onCancel, showDates = false, showRosters = false }) {
+function OpenGymBlocksList({ blocks, dayOfWeek, iso, onRemove }) {
+  const activeBlocks = (blocks || []).filter(block => block.active !== false)
+  const todaysBlocks = activeBlocks.filter(block => rowRepeatsToday(block, dayOfWeek, iso))
+
+  return (
+    <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '13px', letterSpacing: '1px', marginBottom: '8px' }}>Blocked Times</div>
+      {activeBlocks.length === 0 ? (
+        <p className="no-data" style={{ paddingTop: 0 }}>No active Open Gym blocks.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {activeBlocks.map(block => {
+            const repeats = block.block_date
+              ? shortDate(parseISO(block.block_date))
+              : (block.recurrence_days || '').split(',').filter(Boolean).join(', ')
+            const isToday = todaysBlocks.some(todayBlock => todayBlock.id === block.id)
+            const endMinutes = inputTimeToMinutes(block.start_time) + (block.duration_minutes || 60)
+            return (
+              <div key={block.id} className="today-open-gym-slot" style={{ alignItems: 'flex-start' }}>
+                <div>
+                  <div className="today-open-gym-time">{timeInputToLabel(block.start_time)} - {timeInputToLabel(minutesToInputTime(endMinutes))}</div>
+                  <div className="today-open-gym-meta">{repeats || 'No repeat days'}{isToday ? ' · blocks today' : ''}</div>
+                  {block.reason && <div className="today-open-gym-notes">{block.reason}</div>}
+                </div>
+                <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemove(block.id)}>Remove</button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SetLogModal({ movement, section, workout, userId, onClose, onSave }) {
+  const sets = (movement.sets || []).sort((a, b) => a.order_index - b.order_index)
+  const [rows, setRows] = useState(() => sets.map(st => {
+    const existing = (st.set_logs || []).find(log => log.athlete_id === userId)
+    return {
+      setId: st.id,
+      setNumber: st.set_number,
+      reps: st.reps || '',
+      load: st.load || '',
+      rpe: st.rpe || '',
+      value: displaySetLogValue(existing?.value || ''),
+      made: !isMissValue(existing?.value || '')
+    }
+  }))
+  const [saving, setSaving] = useState(false)
+
+  const updateRow = (index, patch) => setRows(current => current.map((row, i) => i === index ? { ...row, ...patch } : row))
+  const copyDown = index => setRows(current => current.map((row, i) => i > index ? { ...row, value: current[index].value, made: current[index].made } : row))
+
+  const save = async () => {
+    setSaving(true)
+    const ok = await onSave(rows)
+    if (!ok) setSaving(false)
+  }
+
+  return (
+    <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
+      <div className="modal">
+        <div className="modal-head">
+          <div>
+            <div className="modal-title">Log Sets</div>
+            <div className="modal-sub">{movement.name} · {summarizeSets(sets, movement.scheme)} · {workout.title}</div>
+          </div>
+          <button className="modal-close" onClick={onClose}>x</button>
+        </div>
+        <div className="modal-body">
+          {section?.notes && (
+            <p style={{ color: 'var(--charcoal-light)', fontSize: '13px', lineHeight: 1.6, marginBottom: '1rem', fontStyle: 'italic' }}>
+              {section.notes}
+            </p>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {rows.map((row, index) => (
+              <div key={row.setId} style={{ background: 'rgba(245,240,232,0.03)', border: '1px solid var(--border)', borderRadius: '3px', padding: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '12px' }}>Set {row.setNumber}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '2px' }}>
+                      {[row.reps && formatPrescriptionValue(row.reps, movement.scheme), row.load && `@ ${row.load}`, row.rpe && `RPE ${row.rpe}`].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={row.value}
+                    onChange={e => updateRow(index, { value: e.target.value })}
+                    placeholder="Weight / result"
+                    autoFocus={index === 0}
+                    style={{ width: '100%', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '8px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyDown(index)}
+                    disabled={index === rows.length - 1 || !row.value.trim()}
+                    title="Copy this result to sets below"
+                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--charcoal-light)', borderRadius: '2px', width: '34px', height: '34px', cursor: index === rows.length - 1 || !row.value.trim() ? 'not-allowed' : 'pointer', opacity: index === rows.length - 1 || !row.value.trim() ? 0.4 : 1 }}
+                  >
+                    ↓
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                  <button type="button" className={row.made ? 'btn-moss' : 'btn-ghost'} onClick={() => updateRow(index, { made: true })} style={{ fontSize: '10px' }}>
+                    Made
+                  </button>
+                  <button type="button" className={!row.made ? 'btn-sm' : 'btn-ghost'} onClick={() => updateRow(index, { made: false })} style={{ fontSize: '10px' }}>
+                    Miss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+            <button className="btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save Sets'}</button>
+            <button className="btn-ghost" onClick={onClose} style={{ width: '100%' }}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SectionLogInput({ scoreType, myLog, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [score, setScore] = useState(myLog?.score || '')
+  const [rounds, setRounds] = useState(myLog?.rounds != null ? String(myLog.rounds) : '')
+  const [reps, setReps] = useState(myLog?.reps != null ? String(myLog.reps) : '')
+
+  useEffect(() => {
+    setScore(myLog?.score || '')
+    setRounds(myLog?.rounds != null ? String(myLog.rounds) : '')
+    setReps(myLog?.reps != null ? String(myLog.reps) : '')
+  }, [myLog])
+
+  const displayValue = () => {
+    if (scoreType === 'AMRAP') {
+      const parts = []
+      if (myLog?.rounds != null) parts.push(`${myLog.rounds} rounds`)
+      if (myLog?.reps != null) parts.push(`+ ${myLog.reps} reps`)
+      return parts.join(' ') || null
+    }
+    return myLog?.score || null
+  }
+
+  const handleSave = () => {
+    if (scoreType === 'AMRAP') onSave({ rounds: rounds ? parseInt(rounds, 10) : null, reps: reps ? parseInt(reps, 10) : null, score: null })
+    else onSave({ score, rounds: null, reps: null })
+    setEditing(false)
+  }
+
+  const current = displayValue()
+  const placeholder = scoreType === 'For Time' ? 'e.g. 12:34' : scoreType === 'Max Reps / Calories' ? 'e.g. 45 reps' : scoreType === 'Max Distance' ? 'e.g. 500m' : 'Score'
+
+  if (!editing) {
+    return (
+      <div style={{ marginTop: '10px' }}>
+        <button
+          onClick={() => setEditing(true)}
+          style={{ background: current ? 'rgba(200,169,106,0.1)' : 'transparent', border: '1px solid', borderColor: current ? 'var(--gold-dark)' : 'var(--border)', borderRadius: '2px', color: current ? 'var(--gold-light)' : 'var(--charcoal-light)', padding: '6px 14px', cursor: 'pointer', fontSize: current ? '14px' : '12px', fontFamily: current ? 'Cinzel, serif' : 'Lato, sans-serif', letterSpacing: current ? '1px' : '2px', textTransform: current ? 'none' : 'uppercase' }}
+        >
+          {current || `Log ${scoreType}`}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: '10px', background: 'rgba(245,240,232,0.03)', border: '1px solid var(--border)', borderRadius: '2px', padding: '12px' }}>
+      {scoreType === 'AMRAP' ? (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input autoFocus type="number" min="0" value={rounds} onChange={e => setRounds(e.target.value)} placeholder="Rounds"
+            style={{ width: '95px', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold)', borderRadius: '2px', padding: '6px 8px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }} />
+          <input type="number" min="0" value={reps} onChange={e => setReps(e.target.value)} placeholder="Reps"
+            style={{ width: '80px', background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold)', borderRadius: '2px', padding: '6px 8px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }} />
+          <button onClick={handleSave} className="btn-sm" style={{ padding: '6px 14px' }}>Save</button>
+          <button onClick={() => setEditing(false)} className="btn-ghost">Cancel</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input autoFocus type="text" value={score} onChange={e => setScore(e.target.value)} placeholder={placeholder}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false) }}
+            style={{ flex: 1, background: 'rgba(245,240,232,0.06)', border: '1px solid var(--gold)', borderRadius: '2px', padding: '6px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '15px', outline: 'none' }} />
+          <button onClick={handleSave} className="btn-sm" style={{ padding: '6px 14px' }}>Save</button>
+          <button onClick={() => setEditing(false)} className="btn-ghost">Cancel</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SectionNotesInput({ myLog, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [notes, setNotes] = useState(myLog?.notes || '')
+  useEffect(() => { setNotes(myLog?.notes || '') }, [myLog])
+
+  if (!editing) {
+    return (
+      <div style={{ marginTop: '8px' }}>
+        <button onClick={() => setEditing(true)}
+          style={{ background: 'transparent', border: 'none', color: myLog?.notes ? 'var(--moss-light)' : 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', letterSpacing: '1px', padding: '2px 0', textAlign: 'left' }}>
+          {myLog?.notes ? `Notes: ${myLog.notes}` : '+ Add scaling / notes'}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: '8px', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+      <input autoFocus type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Scaling, notes, how it felt..."
+        onKeyDown={e => { if (e.key === 'Enter') { onSave(notes); setEditing(false) } if (e.key === 'Escape') setEditing(false) }}
+        style={{ flex: 1, background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '5px 8px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '13px', outline: 'none' }} />
+      <button onClick={() => { onSave(notes); setEditing(false) }} className="btn-sm" style={{ padding: '4px 10px', fontSize: '11px' }}>Save</button>
+      <button onClick={() => setEditing(false)} className="btn-ghost" style={{ padding: '4px 10px', fontSize: '11px' }}>x</button>
+    </div>
+  )
+}
+
+function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup, onCancel, onCheckIn, onMarkAttendance, showDates = false, showRosters = false }) {
   const sorted = [...classes].sort((a, b) => {
     const dateCompare = (a.date || '').localeCompare(b.date || '')
     if (dateCompare !== 0) return dateCompare
@@ -826,16 +1285,30 @@ function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup
                         : signups.map((signup, i) => (
                           <span key={`${signup.athlete_id}-${i}`} className={signup.checkin_time ? 'checked' : ''}>
                             {signup.profiles?.name || 'Athlete'}{signup.checkin_time ? ' ✓' : ''}
+                            <button
+                              type="button"
+                              onClick={() => onMarkAttendance(cls, signup.athlete_id, !signup.checkin_time)}
+                              style={{ marginLeft: '6px', background: 'transparent', border: 'none', color: signup.checkin_time ? 'var(--rose-light)' : 'var(--moss-light)', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                            >
+                              {signup.checkin_time ? 'Undo' : 'Check In'}
+                            </button>
                           </span>
                         ))
                       }
                     </div>
                   )}
                 </div>
-                {isSignedUp
-                  ? <button className="btn-ghost" onClick={() => onCancel(cls)}>Cancel</button>
-                  : <button className="btn-sm" onClick={() => onSignup(cls)} disabled={!canSignUp || spots <= 0}>{spots <= 0 ? 'Full' : 'Sign Up'}</button>
-                }
+                {isSignedUp ? (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {signups.find(signup => signup.athlete_id === userId)?.checkin_time
+                      ? <button className="btn-moss" disabled>Checked In</button>
+                      : <button className="btn-sm" onClick={() => onCheckIn(cls)}>Check In</button>
+                    }
+                    <button className="btn-ghost" onClick={() => onCancel(cls)}>Cancel</button>
+                  </div>
+                ) : (
+                  <button className="btn-sm" onClick={() => onSignup(cls)} disabled={!canSignUp || spots <= 0}>{spots <= 0 ? 'Full' : 'Sign Up'}</button>
+                )}
               </div>
             )
           })}
