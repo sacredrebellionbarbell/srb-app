@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import { notifyCoach } from '../utils/notifyCoach'
 import { formatPrescriptionValue } from '../utils/prescriptionTypes'
+import EditWorkout from './EditWorkout'
 import {
   FREE_TRIAL_CLASS_LIMIT,
   canSeeWorkouts,
@@ -212,10 +213,102 @@ export default function Today({ user, profile, setTab }) {
   const [signupTrack, setSignupTrack] = useState(null)
   const [signupClasses, setSignupClasses] = useState([])
   const [logModal, setLogModal] = useState(null)
+  const [editingWorkout, setEditingWorkout] = useState(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 2800) }
+
+  const deleteWorkout = async (workoutId) => {
+    const fail = (label, error) => {
+      if (!error) return false
+      showToast(`${label}: ${error.message}`)
+      return true
+    }
+
+    const { data: sections, error: sectionLoadError } = await supabase
+      .from('workout_sections')
+      .select('id, movements(id, sets(id))')
+      .eq('workout_id', workoutId)
+
+    if (fail('Could not load workout pieces', sectionLoadError)) return
+
+    const sectionIds = (sections || []).map(section => section.id)
+    const movementIds = (sections || []).flatMap(section => (section.movements || []).map(movement => movement.id))
+    const setIds = (sections || []).flatMap(section =>
+      (section.movements || []).flatMap(movement => (movement.sets || []).map(set => set.id))
+    )
+
+    const { data: results, error: resultLoadError } = await supabase
+      .from('results')
+      .select('id')
+      .eq('workout_id', workoutId)
+
+    if (fail('Could not load workout results', resultLoadError)) return
+
+    const resultIds = (results || []).map(result => result.id)
+
+    if (resultIds.length) {
+      const { error } = await supabase.from('reactions').delete().in('result_id', resultIds)
+      if (fail('Could not delete reactions', error)) return
+    }
+
+    const deleteSteps = [
+      () => supabase.from('set_logs').delete().eq('workout_id', workoutId),
+      () => supabase.from('section_logs').delete().eq('workout_id', workoutId),
+      () => supabase.from('program_workouts').delete().eq('workout_id', workoutId),
+      () => resultIds.length ? supabase.from('results').delete().in('id', resultIds) : Promise.resolve({ error: null }),
+      () => setIds.length ? supabase.from('sets').delete().in('id', setIds) : Promise.resolve({ error: null }),
+      () => movementIds.length ? supabase.from('movements').delete().in('id', movementIds) : Promise.resolve({ error: null }),
+      () => sectionIds.length ? supabase.from('workout_sections').delete().in('id', sectionIds) : Promise.resolve({ error: null })
+    ]
+
+    for (const step of deleteSteps) {
+      const { error } = await step()
+      if (fail('Delete failed', error)) return
+    }
+
+    const { data: deletedRows, error: workoutDeleteError } = await supabase
+      .from('workouts')
+      .delete()
+      .eq('id', workoutId)
+      .select('id')
+
+    if (fail('Could not delete workout', workoutDeleteError)) return
+
+    if (!deletedRows?.length) {
+      const { data: archivedRows, error: archiveError } = await supabase
+        .from('workouts')
+        .update({
+          date: null,
+          title: '[Deleted] Workout',
+          notes: 'Deleted from the app by a coach.'
+        })
+        .eq('id', workoutId)
+        .select('id')
+
+      if (archiveError || !archivedRows?.length) {
+        const { data: movedRows, error: moveError } = await supabase
+          .from('workouts')
+          .update({
+            date: '1900-01-01',
+            title: '[Deleted] Workout',
+            notes: 'Deleted from the app by a coach.'
+          })
+          .eq('id', workoutId)
+          .select('id')
+
+        if (fail('Could not hide workout', moveError)) return
+        if (!movedRows?.length) {
+          showToast('Workout pieces were deleted, but Supabase would not remove or hide the main workout row.')
+          return
+        }
+      }
+    }
+
+    showToast(deletedRows?.length ? 'Workout deleted' : 'Workout hidden')
+    setWorkouts(prev => prev.filter(workout => workout.id !== workoutId))
+  }
 
   const fetchWorkouts = useCallback(async () => {
     if (!workoutAccess) {
@@ -767,6 +860,9 @@ export default function Today({ user, profile, setTab }) {
                     onSignup={() => setSignupTrack(workout.track || 'All Tracks')}
                     onOpenLogSets={payload => setLogModal(payload)}
                     onLogSectionScore={logSectionScore}
+                    isCoach={isCoach}
+                    onEdit={() => setEditingWorkout(workout)}
+                    onDelete={() => deleteWorkout(workout.id)}
                   />
                 ))}
               </div>
@@ -888,12 +984,20 @@ export default function Today({ user, profile, setTab }) {
         />
       )}
 
+      {editingWorkout && (
+        <EditWorkout
+          workout={editingWorkout}
+          onSaved={() => { setEditingWorkout(null); fetchWorkouts(); showToast('Workout updated') }}
+          onClose={() => setEditingWorkout(null)}
+        />
+      )}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
 
-function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSectionScore }) {
+function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSectionScore, isCoach, onEdit, onDelete }) {
   const summary = summarizeWorkout(workout, userId)
 
   return (
@@ -908,7 +1012,15 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSection
             )}
           </div>
         </div>
-        <button className="btn-sm" onClick={onSignup}>Sign Up</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {isCoach && (
+            <>
+              <button className="btn-ghost" style={{ fontSize: '10px' }} onClick={onEdit}>Edit</button>
+              <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={() => { if (window.confirm('Delete this workout? This cannot be undone.')) onDelete() }}>Delete</button>
+            </>
+          )}
+          <button className="btn-sm" onClick={onSignup}>Sign Up</button>
+        </div>
       </div>
 
       <div className="workout-body">
