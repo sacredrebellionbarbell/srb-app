@@ -10,6 +10,7 @@ const STRIPE_TABLE_ID = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID
 const STRIPE_TABLE_ID_2 = process.env.REACT_APP_STRIPE_PRICING_TABLE_ID_2
 const STRIPE_PK = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
+const PREPARE_PCTS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
 
 function epley(w, r) { return r === 1 ? w : Math.round(w * (1 + r / 30)) }
 function xWeight(s) {
@@ -19,6 +20,7 @@ function xWeight(s) {
 }
 function xReps(s) { const m = (s || '').match(/^(\d+)/); return m ? parseInt(m[1]) : 1 }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
+function roundToFive(n) { return Math.round(n / 5) * 5 }
 
 function toDateKey(value) {
   if (!value) return null
@@ -123,6 +125,7 @@ export default function Profile({ user, profile, onProfileUpdate }) {
   const [editPhone, setEditPhone] = useState(false)
   const [editRack, setEditRack] = useState(false)
   const [selectedMovement, setSelectedMovement] = useState(null)
+  const [prepareMovement, setPrepareMovement] = useState('')
   const [rackSettings, setRackSettings] = useState({
     rack_squat_jcups: profile?.rack_squat_jcups || '',
     rack_squat_safeties: profile?.rack_squat_safeties || '',
@@ -149,6 +152,10 @@ export default function Profile({ user, profile, onProfileUpdate }) {
       rack_notes: profile?.rack_notes || ''
     })
   }, [profile])
+
+  useEffect(() => {
+    if (!prepareMovement && prs.length > 0) setPrepareMovement(prs[0][0])
+  }, [prepareMovement, prs])
 
   const fetchResults = async () => {
     const { data: setLogData } = await supabase
@@ -330,6 +337,15 @@ export default function Profile({ user, profile, onProfileUpdate }) {
   const prCount = prs.length
   const classAchievements = earnedClassAchievements(attendance)
   const nextAchievement = nextClassAchievement(attendance)
+  const movementOptions = [...new Set([
+    ...prs.map(([name]) => name),
+    ...results.map(r => r.movement).filter(Boolean)
+  ])].sort((a, b) => a.localeCompare(b))
+  const selectedPrepare = prs.find(([name]) => name === prepareMovement)
+  const selectedPrepareData = selectedPrepare?.[1]
+  const selectedPrepareHistory = results
+    .filter(r => r.movement === prepareMovement)
+    .sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date))
 
   return (
     <div>
@@ -516,6 +532,51 @@ export default function Profile({ user, profile, onProfileUpdate }) {
               + Log a Movement
             </button>
           </div>
+
+          {movementOptions.length > 0 && (
+            <div style={{ marginBottom: '1rem', padding: '12px', background: 'rgba(245,240,232,0.035)', border: '1px solid var(--border)', borderRadius: '4px' }}>
+              <div className="field" style={{ marginBottom: '12px' }}>
+                <label>Prepare Movement</label>
+                <select value={prepareMovement} onChange={e => setPrepareMovement(e.target.value)}>
+                  {movementOptions.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </div>
+
+              {selectedPrepareData ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', letterSpacing: '2px', color: 'var(--charcoal-light)', textTransform: 'uppercase' }}>Estimated 1RM</div>
+                      <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '28px', marginTop: '2px' }}>~{selectedPrepareData.est} lbs</div>
+                      <div style={{ fontSize: '12px', color: 'var(--charcoal-light)', marginTop: '3px' }}>
+                        Based on {selectedPrepareData.raw}{selectedPrepareData.reps ? ` x ${selectedPrepareData.reps}` : ''}{selectedPrepareData.date ? ` · ${selectedPrepareData.date}` : ''}
+                      </div>
+                    </div>
+                    <button className="btn-sm" onClick={() => setSelectedMovement(prepareMovement)}>History</button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(78px, 1fr))', gap: '8px' }}>
+                    {PREPARE_PCTS.map(pct => (
+                      <div key={pct} style={{ background: 'rgba(200,169,106,0.07)', border: '1px solid rgba(200,169,106,0.18)', borderRadius: '3px', padding: '9px 8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', letterSpacing: '1px' }}>{pct}%</div>
+                        <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--bone)', fontSize: '15px', marginTop: '3px' }}>{roundToFive(selectedPrepareData.est * pct / 100)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {selectedPrepareHistory.length > 0 && (
+                    <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--charcoal-light)' }}>
+                      Recent: {selectedPrepareHistory.slice(0, 3).map(r => `${r.score}${r.date ? ` (${r.date})` : ''}`).join(' · ')}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', lineHeight: 1.6 }}>
+                  Select a movement with logged weighted sets to see estimated 1RM percentages.
+                </div>
+              )}
+            </div>
+          )}
 
           {prs.length === 0
             ? <p className="no-data">Log weighted sets to see estimates.</p>
