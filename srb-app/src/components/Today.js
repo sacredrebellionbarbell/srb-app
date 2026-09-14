@@ -202,6 +202,7 @@ export default function Today({ user, profile, setTab }) {
   const openGymAccess = hasOpenGymAccess(profile)
   const [workouts, setWorkouts] = useState([])
   const [classes, setClasses] = useState([])
+  const [allMembers, setAllMembers] = useState([])
   const [trialUses, setTrialUses] = useState(0)
   const [openGymBookings, setOpenGymBookings] = useState([])
   const [openGymSlots, setOpenGymSlots] = useState([])
@@ -497,6 +498,19 @@ export default function Today({ user, profile, setTab }) {
   useEffect(() => { refresh() }, [refresh])
 
   useEffect(() => {
+    if (!isCoach) {
+      setAllMembers([])
+      return
+    }
+
+    supabase
+      .from('profiles')
+      .select('id, name, avatar_url, membership_type')
+      .order('name')
+      .then(({ data }) => setAllMembers(data || []))
+  }, [isCoach])
+
+  useEffect(() => {
     if (!signupTrack) {
       setSignupClasses([])
       return
@@ -603,6 +617,35 @@ export default function Today({ user, profile, setTab }) {
       await supabase.from('class_signups').update({ checkin_time }).match({ class_id: cls.id, athlete_id: athleteId })
     }
     showToast(attended ? 'Marked attended' : 'Attendance removed')
+    await refresh()
+  }
+
+  const manualAddToClass = async (cls, athleteId, attended = false) => {
+    if (!isCoach || !athleteId) return
+    const checkin_time = attended ? currentTimeLabel() : null
+
+    const table = cls.recurring ? 'instance_signups' : 'class_signups'
+    const payload = cls.recurring
+      ? { instance_id: cls.instance?.id, athlete_id: athleteId, checkin_time }
+      : { class_id: cls.id, athlete_id: athleteId, checkin_time }
+    const match = cls.recurring
+      ? { instance_id: cls.instance?.id, athlete_id: athleteId }
+      : { class_id: cls.id, athlete_id: athleteId }
+
+    const { error } = await supabase.from(table).insert(payload)
+
+    if (error && attended) {
+      const { error: updateError } = await supabase.from(table).update({ checkin_time }).match(match)
+      if (updateError) {
+        showToast('Could not check in athlete: ' + updateError.message)
+        return
+      }
+    } else if (error) {
+      showToast('Athlete is already signed up')
+      return
+    }
+
+    showToast(attended ? 'Athlete checked in' : 'Athlete added')
     await refresh()
   }
 
@@ -753,6 +796,8 @@ export default function Today({ user, profile, setTab }) {
               onCancel={cancelSignup}
               onCheckIn={checkInClass}
               onMarkAttendance={markClassAttendance}
+              onManualAdd={manualAddToClass}
+              allMembers={allMembers}
               showRosters
             />
 
@@ -810,6 +855,8 @@ export default function Today({ user, profile, setTab }) {
                 onCancel={cancelSignup}
                 onCheckIn={checkInClass}
                 onMarkAttendance={markClassAttendance}
+                onManualAdd={manualAddToClass}
+                allMembers={allMembers}
                 showRosters
               />
             </div>
@@ -1249,7 +1296,61 @@ function SectionNotesInput({ myLog, onSave }) {
   )
 }
 
-function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup, onCancel, onCheckIn, onMarkAttendance, showDates = false, showRosters = false }) {
+function ManualAddSearch({ allMembers, signups, onManualAdd }) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+
+  const available = (allMembers || []).filter(member =>
+    !signups.some(signup => signup.athlete_id === member.id) &&
+    (!search.trim() || member.name?.toLowerCase().includes(search.toLowerCase()))
+  )
+
+  if (!open) {
+    return (
+      <button className="btn-ghost" style={{ fontSize: '11px', marginTop: '8px' }} onClick={() => setOpen(true)}>
+        + Add / Check In Athlete
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search athletes..."
+          autoFocus
+          style={{ flex: 1, background: 'rgba(245,240,232,0.06)', border: '1px solid var(--border)', borderRadius: '2px', padding: '6px 10px', color: 'var(--bone)', fontFamily: 'Lato, sans-serif', fontSize: '13px', outline: 'none' }}
+        />
+        <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => { setOpen(false); setSearch('') }}>Cancel</button>
+      </div>
+      <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '2px' }}>
+        {available.length === 0 && (
+          <div style={{ padding: '10px 12px', fontSize: '13px', color: 'var(--charcoal-light)' }}>
+            {search ? 'No athletes found' : 'All athletes already signed up'}
+          </div>
+        )}
+        {available.map(member => (
+          <div key={member.id} style={{ padding: '9px 10px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '13px', color: 'var(--bone)', marginBottom: '6px' }}>{member.name}</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => { onManualAdd(member.id, false); setOpen(false); setSearch('') }}>
+                Add
+              </button>
+              <button className="btn-sm" style={{ fontSize: '11px' }} onClick={() => { onManualAdd(member.id, true); setOpen(false); setSearch('') }}>
+                Check In
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup, onCancel, onCheckIn, onMarkAttendance, onManualAdd, allMembers = [], showDates = false, showRosters = false }) {
   const sorted = [...classes].sort((a, b) => {
     const dateCompare = (a.date || '').localeCompare(b.date || '')
     if (dateCompare !== 0) return dateCompare
@@ -1279,23 +1380,26 @@ function ClassSignupPanel({ title, classes, userId, canSignUp, isCoach, onSignup
                     {cls.track && <span>{cls.track}</span>}
                   </div>
                   {showRosters && isCoach && (
-                    <div className="today-roster">
-                      {signups.length === 0
-                        ? <span>No one signed up</span>
-                        : signups.map((signup, i) => (
-                          <span key={`${signup.athlete_id}-${i}`} className={signup.checkin_time ? 'checked' : ''}>
-                            {signup.profiles?.name || 'Athlete'}{signup.checkin_time ? ' ✓' : ''}
-                            <button
-                              type="button"
-                              onClick={() => onMarkAttendance(cls, signup.athlete_id, !signup.checkin_time)}
-                              style={{ marginLeft: '6px', background: 'transparent', border: 'none', color: signup.checkin_time ? 'var(--rose-light)' : 'var(--moss-light)', cursor: 'pointer', fontSize: '11px', padding: 0 }}
-                            >
-                              {signup.checkin_time ? 'Undo' : 'Check In'}
-                            </button>
-                          </span>
-                        ))
-                      }
-                    </div>
+                    <>
+                      <div className="today-roster">
+                        {signups.length === 0
+                          ? <span>No one signed up</span>
+                          : signups.map((signup, i) => (
+                            <span key={`${signup.athlete_id}-${i}`} className={signup.checkin_time ? 'checked' : ''}>
+                              {signup.profiles?.name || 'Athlete'}{signup.checkin_time ? ' ✓' : ''}
+                              <button
+                                type="button"
+                                onClick={() => onMarkAttendance(cls, signup.athlete_id, !signup.checkin_time)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: 'none', color: signup.checkin_time ? 'var(--rose-light)' : 'var(--moss-light)', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                              >
+                                {signup.checkin_time ? 'Undo' : 'Check In'}
+                              </button>
+                            </span>
+                          ))
+                        }
+                      </div>
+                      <ManualAddSearch allMembers={allMembers} signups={signups} onManualAdd={(athleteId, attended) => onManualAdd(cls, athleteId, attended)} />
+                    </>
                   )}
                 </div>
                 {isSignedUp ? (
