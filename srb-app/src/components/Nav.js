@@ -9,8 +9,6 @@ const NAV_ITEMS = [
   { id: 'shop', label: 'Shop', icon: '🛍️', coachOnly: false },
   { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
   { id: 'command', label: 'Command Center', icon: '⌁', coachOnly: true },
-  { id: 'workouts', label: 'Workouts', icon: '🏋️', coachOnly: true },
-  { id: 'schedule', label: 'Schedule', icon: '📅', coachOnly: true },
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
   { id: 'sheet-import', label: 'Import Sheet', icon: '📄', coachOnly: true },
