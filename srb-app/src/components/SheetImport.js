@@ -5,6 +5,7 @@ const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifti
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 const DAY_OFFSETS = { '1': 0, '2': 2, '3': 4 }
+const GRID_DAY_COLUMNS = [0, 4, 8]
 
 const TEMPLATE = `date,track,title,workout_notes,section_type,score_type,section_notes,movement,movement_notes,set_count,reps,load,rpe,demo_url
 2026-07-06,Strong & Savage,Back Squat Day,,Strength,Heaviest Set,,Back Squat,,4,3,80%,8,
@@ -89,6 +90,19 @@ function parseDelimited(text) {
   return rows
 }
 
+function isWeekLabel(value) {
+  return /^week\s*\d+\s*:?\s*$/i.test(clean(value))
+}
+
+function weekNumber(value) {
+  const match = clean(value).match(/week\s*(\d+)/i)
+  return match ? parseInt(match[1], 10) : null
+}
+
+function isVisualProgrammingGrid(table) {
+  return table.some(row => GRID_DAY_COLUMNS.some(col => isWeekLabel(row[col])))
+}
+
 function parseRows(text) {
   const table = parseDelimited(text)
   if (table.length < 2) return []
@@ -112,11 +126,13 @@ function parseSetScheme(value) {
 
   const match = raw.match(/^(\d+)\s*x\s*([^\s]+)(?:\s+(.*))?$/i)
   if (match) {
+    const extra = clean(match[3])
+    const loadMatch = extra.match(/@+\s*(.+)$/)
     return {
       count: parseInt(match[1], 10),
       reps: match[2],
-      load: '',
-      note: clean(match[3])
+      load: loadMatch ? clean(loadMatch[1]) : '',
+      note: loadMatch ? '' : extra
     }
   }
 
@@ -126,6 +142,41 @@ function parseSetScheme(value) {
   }
 
   return { count: 1, reps: raw, load: '', note: '' }
+}
+
+function looksLikeSetScheme(value) {
+  const raw = clean(value)
+  return /^\d+\s*x\s*/i.test(raw) || /^\d+\s*-\s*\d+\s*x\s*/i.test(raw)
+}
+
+function splitInlineMovementScheme(value) {
+  const raw = clean(value)
+  const match = raw.match(/^(.+?)\s+(\d+\s*x\s*.+)$/i)
+  if (!match) return { name: raw, scheme: '' }
+  return { name: clean(match[1]), scheme: clean(match[2]) }
+}
+
+function parseAccessoryLine(value) {
+  const raw = clean(value)
+  if (!raw) return null
+
+  const timeMatch = raw.match(/^(:\d+(?:\s*\/\s*:\d+)?(?:\s*-\s*\d+\s*(?:min|minute|minutes))?)\s+(.+)$/i)
+  if (timeMatch) return { name: clean(timeMatch[2]), reps: clean(timeMatch[1]) }
+
+  const metricMatch = raw.match(/^(\d+(?:\/\d+)?(?:\s*-\s*\d+)?\s*(?:ft|feet|m|meter|meters|cal|cals|sec|secs|second|seconds|min|mins|minute|minutes)?)\s+(.+)$/i)
+  if (metricMatch) return { name: clean(metricMatch[2]), reps: clean(metricMatch[1]) }
+
+  return { name: raw, reps: '' }
+}
+
+function isAccessoryHeading(value) {
+  return /^accessory:?$/i.test(clean(value))
+}
+
+function isAccessoryNote(value) {
+  const raw = clean(value).toLowerCase()
+  if (!raw) return false
+  return /round|steady|amrap|emom|for time|minute|min|pace/.test(raw) && !/\b(push|pull|squat|row|curl|press|carry|lunge|jump|sit|plank|hold|raise|rdl|bike|run|dead|thruster|swing|extension|fly|v-up|tuck|flip|slam|drag|good morning)\b/.test(raw)
 }
 
 function buildSetsFromScheme(schemeText) {
@@ -190,6 +241,12 @@ function dateForProgramRow(row, startDate) {
   if (!base || Number.isNaN(base.getTime())) return ''
   const week = parseInt(pick(row, ['week']), 10) || 1
   const day = dayNumber(pick(row, ['day']))
+  return toISODate(addDays(base, ((week - 1) * 7) + (DAY_OFFSETS[String(day)] || 0)))
+}
+
+function dateForGridWorkout(week, day, startDate) {
+  const base = startDate ? new Date(startDate + 'T12:00:00') : null
+  if (!base || Number.isNaN(base.getTime())) return ''
   return toISODate(addDays(base, ((week - 1) * 7) + (DAY_OFFSETS[String(day)] || 0)))
 }
 
@@ -275,6 +332,106 @@ function buildStrongSavageWorkouts(rows, options) {
       sections
     }
   })
+}
+
+function buildVisualGridWorkouts(table, options) {
+  const track = options.track || 'Babes Who Fight Bears'
+  const workouts = []
+
+  table.forEach((row, rowIndex) => {
+    GRID_DAY_COLUMNS.forEach((startCol, dayIndex) => {
+      const week = weekNumber(row[startCol])
+      if (!week) return
+
+      const nextWeekIndex = table.findIndex((nextRow, nextIndex) => (
+        nextIndex > rowIndex && GRID_DAY_COLUMNS.some(col => weekNumber(nextRow[col]))
+      ))
+      const endIndex = nextWeekIndex === -1 ? table.length : nextWeekIndex
+      const focus = clean(table[rowIndex + 1]?.[startCol]) || `Day ${dayIndex + 1}`
+      const tempo = clean(row[startCol + 1])
+      const title = `Week ${week} Day ${dayIndex + 1} - ${focus}`
+      const strength = {
+        type: 'Strength',
+        score_type: 'Heaviest Set',
+        notes: tempo,
+        movements: []
+      }
+      const accessory = {
+        type: 'Accessory',
+        score_type: 'No Score',
+        notes: '',
+        movements: []
+      }
+      let currentMovement = null
+
+      for (let i = rowIndex + 2; i < endIndex; i++) {
+        const strengthCell = clean(table[i]?.[startCol])
+        const detailCell = clean(table[i]?.[startCol + 1])
+        const accessoryCell = clean(table[i]?.[startCol + 2])
+
+        if (strengthCell && !isAccessoryHeading(strengthCell)) {
+          if (looksLikeSetScheme(strengthCell) && currentMovement) {
+            const scheme = parseSetScheme(strengthCell)
+            currentMovement.notes = [currentMovement.notes, scheme.note, detailCell].filter(Boolean).join(' | ')
+            currentMovement.sets = buildSetsFromScheme(strengthCell)
+          } else {
+            const inline = splitInlineMovementScheme(strengthCell)
+            currentMovement = {
+              name: inline.name,
+              notes: detailCell,
+              demo_url: '',
+              sets: inline.scheme ? buildSetsFromScheme(inline.scheme) : []
+            }
+            strength.movements.push(currentMovement)
+          }
+        } else if (detailCell && currentMovement && !currentMovement.notes.includes(detailCell)) {
+          currentMovement.notes = [currentMovement.notes, detailCell].filter(Boolean).join(' | ')
+        }
+
+        if (accessoryCell && !isAccessoryHeading(accessoryCell)) {
+          if (isAccessoryNote(accessoryCell) && accessory.movements.length === 0) {
+            accessory.notes = [accessory.notes, accessoryCell].filter(Boolean).join(' | ')
+          } else {
+            const parsed = parseAccessoryLine(accessoryCell)
+            if (parsed) {
+              accessory.movements.push({
+                name: parsed.name,
+                notes: '',
+                demo_url: '',
+                sets: [{
+                  set_number: 1,
+                  reps: parsed.reps,
+                  load: '',
+                  rpe: '',
+                  order_index: 0
+                }]
+              })
+            }
+          }
+        }
+      }
+
+      strength.movements.forEach((movement) => {
+        if (!movement.sets.length) {
+          movement.sets = [{ set_number: 1, reps: '', load: '', rpe: '', order_index: 0 }]
+        }
+      })
+
+      const sections = [strength]
+      if (accessory.movements.length || accessory.notes) sections.push(accessory)
+
+      workouts.push({
+        title,
+        date: dateForGridWorkout(week, dayIndex + 1, options.startDate),
+        track,
+        notes: tempo,
+        assigned_athlete_id: null,
+        sections
+      })
+    })
+  })
+
+  return workouts
 }
 
 function buildGenericWorkouts(rows, members) {
@@ -367,7 +524,8 @@ function buildGenericWorkouts(rows, members) {
   }))
 }
 
-function buildWorkouts(rows, members, options) {
+function buildWorkouts(rows, table, members, options) {
+  if (isVisualProgrammingGrid(table)) return buildVisualGridWorkouts(table, options)
   if (isStrongSavageFormat(rows)) return buildStrongSavageWorkouts(rows, options)
   return buildGenericWorkouts(rows, members)
 }
@@ -388,9 +546,11 @@ export default function SheetImport() {
     supabase.from('profiles').select('id, name, email').order('name').then(({ data }) => setMembers(data || []))
   }, [])
 
+  const parsedTable = useMemo(() => parseDelimited(rawText), [rawText])
   const parsedRows = useMemo(() => parseRows(rawText), [rawText])
   const detectedStrongSavage = isStrongSavageFormat(parsedRows)
-  const workouts = useMemo(() => buildWorkouts(parsedRows, members, { startDate, track }), [parsedRows, members, startDate, track])
+  const detectedVisualGrid = isVisualProgrammingGrid(parsedTable)
+  const workouts = useMemo(() => buildWorkouts(parsedRows, parsedTable, members, { startDate, track }), [parsedRows, parsedTable, members, startDate, track])
 
   const loadFile = async (event) => {
     const file = event.target.files?.[0]
@@ -404,8 +564,8 @@ export default function SheetImport() {
 
   const validate = () => {
     const nextErrors = []
-    if (!parsedRows.length) nextErrors.push('No rows found. Upload or paste a CSV/TSV sheet first.')
-    if (detectedStrongSavage && !startDate) nextErrors.push('Choose the date for Week 1 Day 1 so the app can place M/W/F workouts correctly.')
+    if (!parsedTable.length) nextErrors.push('No rows found. Upload or paste a CSV/TSV sheet first.')
+    if ((detectedStrongSavage || detectedVisualGrid) && !startDate) nextErrors.push('Choose the date for Week 1 Day 1 so the app can place M/W/F workouts correctly.')
     workouts.forEach((workout, index) => {
       if (!workout.date) nextErrors.push(`Workout ${index + 1} is missing a date.`)
       if (!workout.sections.length) nextErrors.push(`${workout.title} has no sections.`)
@@ -497,7 +657,7 @@ export default function SheetImport() {
       <div className="panel">
         <div className="panel-title">Programming Sheet Import</div>
         <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.7, marginBottom: '1rem' }}>
-          Upload your Strong & Savage monthly CSV, paste rows from Google Sheets, or use the detailed import template. For Week/Day sheets, choose the date for Week 1 Day 1 and the app will place Day 1, Day 2, and Day 3 on Monday, Wednesday, and Friday.
+          Upload your monthly programming CSV, paste rows from Google Sheets, or use the detailed import template. For Week/Day sheets, choose the date for Week 1 Day 1 and the app will place Day 1, Day 2, and Day 3 on Monday, Wednesday, and Friday.
         </p>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '1rem' }}>
@@ -515,7 +675,7 @@ export default function SheetImport() {
           </div>
         )}
 
-        {detectedStrongSavage && (
+        {(detectedStrongSavage || detectedVisualGrid) && (
           <div className="two-col">
             <div className="field">
               <label>Track</label>
@@ -557,7 +717,7 @@ export default function SheetImport() {
         ) : (
           <>
             <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '1rem' }}>
-              {detectedStrongSavage ? 'Strong & Savage format detected. ' : ''}
+              {detectedVisualGrid ? 'Visual programming grid detected. ' : detectedStrongSavage ? 'Strong & Savage format detected. ' : ''}
               {workouts.length} workout{workouts.length === 1 ? '' : 's'} ready to import.
             </div>
             {workouts.slice(0, 15).map((workout, index) => (
