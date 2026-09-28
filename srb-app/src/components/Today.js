@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { notifyCoach } from '../utils/notifyCoach'
 import { formatPrescriptionValue } from '../utils/prescriptionTypes'
 import EditWorkout from './EditWorkout'
+import PrepareModal from './PrepareModal'
 import {
   FREE_TRIAL_CLASS_LIMIT,
   canSeeWorkouts,
@@ -29,6 +30,10 @@ const CHECKIN_TIMES = [
 ]
 const DEFAULT_OPEN_GYM_DURATION = 60
 const DEFAULT_OPEN_GYM_CAPACITY = 1
+const STRENGTH_TERMS = [
+  'squat', 'deadlift', 'press', 'bench', 'snatch', 'clean', 'jerk',
+  'pull', 'row', 'lunge', 'hinge', 'thruster', 'carry'
+]
 
 function toISO(d) { return d.toISOString().split('T')[0] }
 function parseISO(dateStr) { return new Date(dateStr + 'T12:00:00') }
@@ -141,6 +146,51 @@ function classTrackMatches(classTrack, workoutTrack) {
   return classTrack === workoutTrack
 }
 
+function hasStrengthCue(section, movement) {
+  const sectionType = (section?.type || '').toLowerCase()
+  const scoreType = (section?.score_type || '').toLowerCase()
+  const movementName = (movement?.name || '').toLowerCase()
+  const movementNotes = (movement?.notes || '').toLowerCase()
+  const sectionNotes = (section?.notes || '').toLowerCase()
+  const sets = movement?.sets || []
+
+  if (sectionType.includes('strength')) return true
+  if (scoreType.includes('heaviest')) return true
+  if (sets.some(set => (set.load || '').includes('%') || set.rpe)) return true
+  if (/%|1rm|one rep max|percent/.test(`${movementNotes} ${sectionNotes}`)) return true
+  return STRENGTH_TERMS.some(term => movementName.includes(term))
+}
+
+function getStrengthMovements(workout) {
+  const sections = [...(workout.workout_sections || [])].sort((a, b) => a.order_index - b.order_index)
+  const seen = new Set()
+  const strengthMovements = []
+
+  sections.forEach(section => {
+    ;[...(section.movements || [])]
+      .sort((a, b) => a.order_index - b.order_index)
+      .forEach(movement => {
+        const sets = [...(movement.sets || [])].sort((a, b) => a.order_index - b.order_index)
+        if (!movement.name || !sets.length || !hasStrengthCue(section, { ...movement, sets })) return
+        const key = `${movement.name.toLowerCase()}-${section.id}`
+        if (seen.has(key)) return
+        seen.add(key)
+        strengthMovements.push({ name: movement.name, sectionType: section.type, sets })
+      })
+  })
+
+  if (strengthMovements.length) return strengthMovements
+  return sections
+    .flatMap(section => [...(section.movements || [])]
+      .sort((a, b) => a.order_index - b.order_index)
+      .map(movement => ({
+        name: movement.name,
+        sectionType: section.type,
+        sets: [...(movement.sets || [])].sort((a, b) => a.order_index - b.order_index)
+      })))
+    .filter(movement => movement.name && movement.sets.length)
+}
+
 function summarizeWorkout(workout, userId) {
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
   const movements = sections.flatMap(section => (section.movements || []).map(movement => ({ ...movement, section })))
@@ -213,6 +263,7 @@ export default function Today({ user, profile, setTab }) {
   const [signupTrack, setSignupTrack] = useState(null)
   const [signupClasses, setSignupClasses] = useState([])
   const [logModal, setLogModal] = useState(null)
+  const [prepare, setPrepare] = useState(null)
   const [editingWorkout, setEditingWorkout] = useState(null)
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState(null)
@@ -858,11 +909,23 @@ export default function Today({ user, profile, setTab }) {
                     workout={workout}
                     userId={user.id}
                     onSignup={() => setSignupTrack(workout.track || 'All Tracks')}
+                    onPrepare={() => setPrepare({ workout, movements: getStrengthMovements(workout) })}
                     onOpenLogSets={payload => setLogModal(payload)}
                     onLogSectionScore={logSectionScore}
                     isCoach={isCoach}
                     onEdit={() => setEditingWorkout(workout)}
                     onDelete={() => deleteWorkout(workout.id)}
+                    coachClasses={classes.filter(cls => classTrackMatches(cls.track, workout.track))}
+                    classActions={{
+                      userId: user.id,
+                      canSignUp,
+                      onSignup: signup,
+                      onCancel: cancelSignup,
+                      onCheckIn: checkInClass,
+                      onMarkAttendance: markClassAttendance,
+                      onManualAdd: manualAddToClass,
+                      allMembers
+                    }}
                   />
                 ))}
               </div>
@@ -992,12 +1055,21 @@ export default function Today({ user, profile, setTab }) {
         />
       )}
 
+      {prepare && (
+        <PrepareModal
+          workout={prepare.workout}
+          movements={prepare.movements}
+          user={user}
+          onClose={() => setPrepare(null)}
+        />
+      )}
+
       {toast && <div className="toast">{toast}</div>}
     </div>
   )
 }
 
-function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSectionScore, isCoach, onEdit, onDelete }) {
+function WorkoutPreview({ workout, userId, onSignup, onPrepare, onOpenLogSets, onLogSectionScore, isCoach, onEdit, onDelete, coachClasses, classActions }) {
   const summary = summarizeWorkout(workout, userId)
 
   return (
@@ -1019,6 +1091,7 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSection
               <button className="btn-ghost" style={{ fontSize: '10px', color: 'var(--rose)' }} onClick={() => { if (window.confirm('Delete this workout? This cannot be undone.')) onDelete() }}>Delete</button>
             </>
           )}
+          <button className="btn-moss" onClick={onPrepare}>Prepare</button>
           <button className="btn-sm" onClick={onSignup}>Sign Up</button>
         </div>
       </div>
@@ -1093,6 +1166,22 @@ function WorkoutPreview({ workout, userId, onSignup, onOpenLogSets, onLogSection
             />
           </div>
         ))}
+        {isCoach && (
+          <ClassSignupPanel
+            title={`${workout.track || 'All Tracks'} Class Check-In`}
+            classes={coachClasses || []}
+            userId={classActions.userId}
+            canSignUp={classActions.canSignUp}
+            isCoach
+            onSignup={classActions.onSignup}
+            onCancel={classActions.onCancel}
+            onCheckIn={classActions.onCheckIn}
+            onMarkAttendance={classActions.onMarkAttendance}
+            onManualAdd={classActions.onManualAdd}
+            allMembers={classActions.allMembers}
+            showRosters
+          />
+        )}
       </div>
     </div>
   )
