@@ -6,6 +6,7 @@ import { notifyCoach } from '../utils/notifyCoach'
 import {
   FREE_TRIAL_CLASS_LIMIT,
   hasClassAccess,
+  hasOpenGymAccess,
   isCoach as profileIsCoach,
   isFreeTrial
 } from '../utils/access'
@@ -17,6 +18,12 @@ function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { ho
 // Day of week helpers
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+const CLASS_TRACKS = ['All Tracks', 'Babes Who Fight Bears', 'Strong & Savage']
+const CLASS_TRACK_BADGES = {
+  'Babes Who Fight Bears': 'track-bears',
+  'Strong & Savage': 'track-strength',
+  'All Tracks': 'track-open'
+}
 
 function getDayOfWeek(dateStr) {
   // Use UTC to avoid timezone shifting the date
@@ -110,8 +117,14 @@ function rowRepeatsToday(row, dayOfWeek, isoDate) {
   return days.includes(dayOfWeek)
 }
 
+function ClassTrackBadge({ track }) {
+  const label = track || 'All Tracks'
+  return <span className={`track-badge ${CLASS_TRACK_BADGES[label] || 'track-open'}`}>{label}</span>
+}
+
 export default function Schedule({ user, profile }) {
   const [currentDate, setCurrentDate] = useState(new Date())
+  const [scheduleView, setScheduleView] = useState('schedule')
   const [oneTimeClasses, setOneTimeClasses] = useState([])
   const [recurringClasses, setRecurringClasses] = useState([])
   const [has247, setHas247] = useState(null)
@@ -134,6 +147,7 @@ export default function Schedule({ user, profile }) {
   const isTrial = isFreeTrial(profile)
   const { permission, subscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(user)
   const canUsePaidClassAccess = hasClassAccess(profile)
+  const canUseOpenGymAccess = hasOpenGymAccess(profile)
   const canSignUp = canUsePaidClassAccess || (isTrial && trialUses < FREE_TRIAL_CLASS_LIMIT)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -335,6 +349,22 @@ export default function Schedule({ user, profile }) {
     showToast('Removed'); fetchTrialUses(); fetchClasses()
   }
 
+  const checkInClass = async (classId) => {
+    const { error } = await supabase.from('class_signups')
+      .update({ checkin_time: currentTimeLabel() })
+      .match({ class_id: classId, athlete_id: user.id })
+    if (error) showToast('Could not check in: ' + error.message)
+    else { showToast('Checked in!'); fetchClasses() }
+  }
+
+  const checkInInstance = async (instanceId) => {
+    const { error } = await supabase.from('instance_signups')
+      .update({ checkin_time: currentTimeLabel() })
+      .match({ instance_id: instanceId, athlete_id: user.id })
+    if (error) showToast('Could not check in: ' + error.message)
+    else { showToast('Checked in!'); fetchClasses() }
+  }
+
   const removeFromClass = async (classId, athleteId) => {
     if (!isCoach || !athleteId) return
     await supabase.from('class_signups').delete().match({ class_id: classId, athlete_id: athleteId })
@@ -445,7 +475,7 @@ export default function Schedule({ user, profile }) {
 
   const checkin247 = async () => {
     if (!has247) return
-    if (!canUsePaidClassAccess) { showToast('Open gym access is for active members only.'); return }
+    if (!canUseOpenGymAccess) { showToast('Open gym access is for active Open Gym or Class Access members only.'); return }
     const { error } = await supabase.from('class_signups').insert({
       class_id: has247.id, athlete_id: user.id,
       checkin_time: checkinTime, is_247_checkin: true
@@ -488,7 +518,7 @@ export default function Schedule({ user, profile }) {
     })
 
   const bookOpenGymSlot = async (slot) => {
-    if (!canUsePaidClassAccess) { showToast('Open gym access is for active members only.'); return }
+    if (!canUseOpenGymAccess) { showToast('Open gym access is for active Open Gym or Class Access members only.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
     if (slot.unavailable) { showToast('That Open Gym time is not available.'); return }
     if ((slot.bookings?.length || 0) >= (slot.capacity || 1)) { showToast('That Open Gym time is full.'); return }
@@ -539,16 +569,57 @@ export default function Schedule({ user, profile }) {
     fetchOpenGym()
   }
 
+  const datedClasses = [
+    ...oneTimeClasses.map(cls => ({ kind: 'one-time', cls, sortTime: new Date(cls.start_time).getHours() * 60 + new Date(cls.start_time).getMinutes() })),
+    ...recurringClasses.map(cls => ({ kind: 'recurring', cls, sortTime: labelToMinutes(cls.recurrence_time) ?? 9999 }))
+  ].sort((a, b) => a.sortTime - b.sortTime)
+
+  const displayedClasses = scheduleView === 'signups'
+    ? datedClasses.filter(({ kind, cls }) => kind === 'one-time'
+      ? (cls.class_signups || []).some(signupRow => signupRow.athlete_id === user.id)
+      : (cls.instance?.instance_signups || []).some(signupRow => signupRow.athlete_id === user.id))
+    : datedClasses
+
+  const dateStrip = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(currentDate)
+    date.setDate(date.getDate() + index - 3)
+    return date
+  })
+
   return (
     <div>
-      {/* Date navigation */}
-      <div className="date-nav">
-        <button className="date-nav-btn" onClick={prevDay}>‹</button>
-        <div style={{ textAlign: 'center' }}>
-          <div className="date-nav-label">{formatDate(currentDate)}</div>
-          {!isToday && <div className="date-nav-today" onClick={goToday}>Back to today</div>}
+      <div className="schedule-heading">
+        <div>
+          <div className="schedule-kicker">Reserve Your Training</div>
+          <h2>Schedule</h2>
         </div>
-        <button className="date-nav-btn" onClick={nextDay}>›</button>
+        {isCoach && <button className="btn-sm" onClick={() => setShowForm(!showForm)}>{showForm ? 'Close' : 'Add Class'}</button>}
+      </div>
+
+      <div className="schedule-tabs" role="tablist" aria-label="Schedule views">
+        <button className={scheduleView === 'schedule' ? 'active' : ''} onClick={() => setScheduleView('schedule')}>Schedule</button>
+        <button className={scheduleView === 'signups' ? 'active' : ''} onClick={() => setScheduleView('signups')}>My Signups</button>
+      </div>
+
+      <div className="schedule-week-strip">
+        <button className="schedule-week-arrow" onClick={prevDay} aria-label="Previous day">‹</button>
+        {dateStrip.map(date => {
+          const selected = toISO(date) === iso
+          const today = toISO(date) === toISO(new Date())
+          return (
+            <button key={toISO(date)} className={`schedule-day ${selected ? 'selected' : ''}`} onClick={() => setCurrentDate(date)}>
+              <span>{date.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
+              <strong>{date.getDate()}</strong>
+              {today && <i />}
+            </button>
+          )
+        })}
+        <button className="schedule-week-arrow" onClick={nextDay} aria-label="Next day">›</button>
+      </div>
+
+      <div className="schedule-date-heading">
+        <span>{formatDate(currentDate)}</span>
+        {!isToday && <button onClick={goToday}>Today</button>}
       </div>
 
       {/* Coach-only 24/7 manual check-in tools */}
@@ -609,7 +680,7 @@ export default function Schedule({ user, profile }) {
       <OpenGymModule
         isCoach={isCoach}
         user={user}
-        canUsePaidClassAccess={canUsePaidClassAccess}
+        canUsePaidClassAccess={canUseOpenGymAccess}
         openGymAvailable={openGymAvailable}
         slots={openGymSlotsToday}
         showSlotForm={showOpenGymSlotForm}
@@ -621,12 +692,6 @@ export default function Schedule({ user, profile }) {
         onRemoveSlot={removeOpenGymSlot}
         onSaved={fetchOpenGym}
       />
-
-      {/* Coach controls */}
-      <div className="section-header">
-        <h2 className="section-title">Classes — {dayOfWeek}</h2>
-        {isCoach && <button className="btn-sm" onClick={() => setShowForm(!showForm)}>+ Add Class</button>}
-      </div>
 
       {isTrial && (
         <div className="panel" style={{ marginBottom: '1rem' }}>
@@ -646,46 +711,46 @@ export default function Schedule({ user, profile }) {
 
       {loading && <div className="loading">Loading...</div>}
 
-      {!loading && allClasses.length === 0 && !showForm && (
+      {!loading && displayedClasses.length === 0 && !showForm && (
         <div className="empty">
-          <h3>No classes today</h3>
-          <p>{isCoach ? 'Add a class above, or set up recurring classes for this day.' : 'No classes scheduled for today.'}</p>
+          <h3>{scheduleView === 'signups' ? 'No signups this day' : 'No classes today'}</h3>
+          <p>{scheduleView === 'signups' ? 'Classes you reserve will appear here.' : isCoach ? 'Add a class, or set up recurring classes for this day.' : 'No classes scheduled for today.'}</p>
         </div>
       )}
 
-      {/* One-time classes */}
-      {oneTimeClasses.map(cls => (
-        <OneTimeClassCard
-          key={cls.id}
-          cls={cls}
-          user={user}
-          isCoach={isCoach}
-          allMembers={allMembers}
-          onSignup={() => signup(cls.id)}
-          onUnsignup={() => unsignup(cls.id)}
-          onManualAdd={(athleteId) => manualAdd(cls.id, athleteId)}
-          onRemoveAthlete={(athleteId) => removeFromClass(cls.id, athleteId)}
-          onToggleAttendance={(athleteId, attended) => markClassAttendance(cls.id, athleteId, attended)}
-          onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
-        />
-      ))}
-
-      {/* Recurring class instances */}
-      {recurringClasses.map(cls => (
-        <RecurringClassCard
-          key={cls.id}
-          cls={cls}
-          user={user}
-          isCoach={isCoach}
-          allMembers={allMembers}
-          onSignup={() => signupInstance(cls.instance?.id)}
-          onUnsignup={() => unsignupInstance(cls.instance?.id)}
-          onManualAdd={(athleteId) => manualAddInstance(cls.instance?.id, athleteId)}
-          onRemoveAthlete={(athleteId) => removeFromInstance(cls.instance?.id, athleteId)}
-          onToggleAttendance={(athleteId, attended) => markInstanceAttendance(cls.instance?.id, athleteId, attended)}
-          onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
-        />
-      ))}
+      <div className="schedule-class-list">
+        {displayedClasses.map(({ kind, cls }) => kind === 'one-time' ? (
+          <OneTimeClassCard
+            key={`one-${cls.id}`}
+            cls={cls}
+            user={user}
+            isCoach={isCoach}
+            allMembers={allMembers}
+            onSignup={() => signup(cls.id)}
+            onUnsignup={() => unsignup(cls.id)}
+            onCheckIn={() => checkInClass(cls.id)}
+            onManualAdd={(athleteId) => manualAdd(cls.id, athleteId)}
+            onRemoveAthlete={(athleteId) => removeFromClass(cls.id, athleteId)}
+            onToggleAttendance={(athleteId, attended) => markClassAttendance(cls.id, athleteId, attended)}
+            onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
+          />
+        ) : (
+          <RecurringClassCard
+            key={`recurring-${cls.id}`}
+            cls={cls}
+            user={user}
+            isCoach={isCoach}
+            allMembers={allMembers}
+            onSignup={() => signupInstance(cls.instance?.id)}
+            onUnsignup={() => unsignupInstance(cls.instance?.id)}
+            onCheckIn={() => checkInInstance(cls.instance?.id)}
+            onManualAdd={(athleteId) => manualAddInstance(cls.instance?.id, athleteId)}
+            onRemoveAthlete={(athleteId) => removeFromInstance(cls.instance?.id, athleteId)}
+            onToggleAttendance={(athleteId, attended) => markInstanceAttendance(cls.instance?.id, athleteId, attended)}
+            onAthleteClick={isCoach ? (id) => setAthletePanel(id) : null}
+          />
+        ))}
+      </div>
 
       {toast && <div className="toast">{toast}</div>}
 
@@ -695,30 +760,69 @@ export default function Schedule({ user, profile }) {
           onClose={() => setAthletePanel(null)}
         />
       )}
+      <ScheduleStyles />
     </div>
   )
 }
 
-function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
+function ScheduleStyles() {
+  return (
+    <style>{`
+      .schedule-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}
+      .schedule-kicker{font-family:'Cinzel',serif;font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--rose-light)}
+      .schedule-heading h2{font-family:'Cinzel',serif;font-size:30px;letter-spacing:2px;color:var(--gold-light);margin:3px 0 0}
+      .schedule-tabs{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border-strong);margin-bottom:8px}
+      .schedule-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;color:var(--charcoal-light);font-family:'Cinzel',serif;font-size:15px;letter-spacing:1px;padding:13px;cursor:pointer}
+      .schedule-tabs button.active{color:var(--gold-light);border-bottom-color:var(--rose)}
+      .schedule-week-strip{display:grid;grid-template-columns:40px repeat(7,minmax(38px,1fr)) 40px;align-items:center;gap:4px;padding:10px 0 14px;border-bottom:1px solid var(--border);margin-bottom:0}
+      .schedule-week-arrow{width:38px;height:44px;background:transparent;border:0;color:var(--gold-light);font-size:28px;cursor:pointer}
+      .schedule-day{position:relative;height:62px;min-width:0;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--charcoal-light);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;cursor:pointer}
+      .schedule-day span{font-size:11px;text-transform:uppercase}.schedule-day strong{font-family:'Cinzel',serif;font-size:18px;font-weight:400;color:var(--bone)}
+      .schedule-day.selected{background:var(--rose-dark);border-color:var(--rose);color:var(--bone)}.schedule-day.selected strong{color:#fff}
+      .schedule-day i{position:absolute;bottom:4px;width:4px;height:4px;border-radius:50%;background:var(--gold-light)}
+      .schedule-date-heading{display:flex;align-items:center;justify-content:space-between;background:rgba(255,248,236,.07);border-bottom:1px solid var(--border);padding:11px 14px;margin-bottom:12px;color:var(--gold-light);font-family:'Cinzel',serif;font-size:15px;letter-spacing:1px}
+      .schedule-date-heading button{border:0;background:transparent;color:var(--rose-light);font-size:12px;text-transform:uppercase;letter-spacing:1px;cursor:pointer}
+      .schedule-class-list{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+      .schedule-class-card{position:relative;margin:0;border-color:var(--border-strong);background:rgba(255,248,236,.09);padding-left:1.55rem}
+      .schedule-class-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--gold-dark)}
+      .schedule-class-card.reserved::before{background:var(--moss-light)}
+      .schedule-class-card.reserved::after{content:'Reserved';position:absolute;top:0;left:0;background:var(--moss);color:#fff;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:2px 7px}
+      .schedule-class-card.reserved{padding-top:1.8rem}
+      .schedule-class-card .class-card-header{align-items:center}.schedule-class-card .class-title{font-size:22px}
+      .schedule-signup-button{width:48px;height:48px;flex-shrink:0;border-radius:50%;border:2px solid var(--gold);background:transparent;color:var(--gold-light);font-size:32px;line-height:1;cursor:pointer}
+      .schedule-signup-button:disabled{opacity:.45;cursor:not-allowed;font-size:11px}
+      @media(max-width:640px){.schedule-heading h2{font-size:26px}.schedule-week-strip{grid-template-columns:28px repeat(7,minmax(34px,1fr)) 28px;gap:1px}.schedule-week-arrow{width:28px}.schedule-day{height:56px;padding:0}.schedule-day strong{font-size:16px}.schedule-class-card .class-card-header{gap:10px}.schedule-class-card .class-card-header>div:last-child{flex-wrap:wrap;justify-content:flex-end}.schedule-class-card .class-title{font-size:20px}.schedule-signup-button{width:44px;height:44px}.schedule-date-heading{font-size:13px}}
+    `}</style>
+  )
+}
+
+function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const isSignedUp = cls.class_signups?.some(s => s.athlete_id === user.id)
+  const mySignup = cls.class_signups?.find(s => s.athlete_id === user.id)
   const spots = cls.capacity - (cls.class_signups?.length || 0)
   const full = spots <= 0
   const dt = new Date(cls.start_time)
 
   return (
-    <div className="class-card">
+    <div className={`class-card schedule-class-card ${isSignedUp ? 'reserved' : ''}`}>
       <div className="class-card-header">
         <div className="class-title">{cls.title}</div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {isSignedUp
-            ? <button className="btn-ghost" onClick={onUnsignup}>Cancel</button>
-            : <button className="btn-sm" onClick={onSignup} disabled={full}>{full ? 'Full' : 'Sign Up'}</button>
+          {isSignedUp ? (
+            <>
+              <button className="btn-ghost" onClick={onUnsignup}>Cancel</button>
+              {mySignup?.checkin_time
+                ? <button className="btn-moss" disabled>Checked In</button>
+                : <button className="btn-sm" onClick={onCheckIn}>Check In</button>}
+            </>
+          ) : <button className="schedule-signup-button" onClick={onSignup} disabled={full} aria-label={`Sign up for ${cls.title}`}>{full ? 'Full' : '+'}</button>
           }
         </div>
       </div>
       <div className="class-meta">
         <span>{dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
         <span>{cls.duration_minutes} min</span>
+        <ClassTrackBadge track={cls.track} />
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
       <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
@@ -726,15 +830,16 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
   )
 }
 
-function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
+function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const instance = cls.instance
   const signups = instance?.instance_signups || []
   const isSignedUp = signups.some(s => s.athlete_id === user.id)
+  const mySignup = signups.find(s => s.athlete_id === user.id)
   const spots = cls.capacity - signups.length
   const full = spots <= 0
 
   return (
-    <div className="class-card">
+    <div className={`class-card schedule-class-card ${isSignedUp ? 'reserved' : ''}`}>
       <div className="class-card-header">
         <div>
           <div className="class-title">{cls.title}</div>
@@ -743,9 +848,14 @@ function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsign
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {isSignedUp
-            ? <button className="btn-ghost" onClick={onUnsignup}>Cancel</button>
-            : <button className="btn-sm" onClick={onSignup} disabled={full || !instance}>{full ? 'Full' : 'Sign Up'}</button>
+          {isSignedUp ? (
+            <>
+              <button className="btn-ghost" onClick={onUnsignup}>Cancel</button>
+              {mySignup?.checkin_time
+                ? <button className="btn-moss" disabled>Checked In</button>
+                : <button className="btn-sm" onClick={onCheckIn}>Check In</button>}
+            </>
+          ) : <button className="schedule-signup-button" onClick={onSignup} disabled={full || !instance} aria-label={`Sign up for ${cls.title}`}>{full ? 'Full' : '+'}</button>
           }
         </div>
       </div>
@@ -753,6 +863,7 @@ function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsign
         <span>{cls.recurrence_time || '—'}</span>
         <span>{cls.duration_minutes} min</span>
         <span style={{ color: 'var(--gold)', fontSize: '11px' }}>Recurring</span>
+        <ClassTrackBadge track={cls.track} />
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
       <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
@@ -1090,6 +1201,7 @@ function ClassForm({ onSaved }) {
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurDays, setRecurDays] = useState([])
   const [is247, setIs247] = useState(false)
+  const [track, setTrack] = useState('All Tracks')
   const [loading, setLoading] = useState(false)
 
   const toggleDay = (day) => {
@@ -1117,11 +1229,12 @@ function ClassForm({ onSaved }) {
         recurrence_time: displayTime,
         duration_minutes: parseInt(duration),
         capacity: parseInt(capacity),
+        track,
         is_247: false
       })
     } else {
       const startTime = new Date(`${date}T${time}`).toISOString()
-      await supabase.from('classes').insert({ title, description: desc, start_time: startTime, duration_minutes: parseInt(duration), capacity: parseInt(capacity), is_recurring: false, is_247: false })
+      await supabase.from('classes').insert({ title, description: desc, start_time: startTime, duration_minutes: parseInt(duration), capacity: parseInt(capacity), track, is_recurring: false, is_247: false })
     }
 
     setLoading(false)
@@ -1134,6 +1247,15 @@ function ClassForm({ onSaved }) {
 
       <div className="field"><label>Class Name</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Babes Who Fight Bears" /></div>
       <div className="field"><label>Description</label><input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional notes for members" /></div>
+
+      {!is247 && (
+        <div className="field">
+          <label>Track</label>
+          <select value={track} onChange={e => setTrack(e.target.value)}>
+            {CLASS_TRACKS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* Type selector */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
