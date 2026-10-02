@@ -18,7 +18,7 @@ function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { ho
 // Day of week helpers
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const CLASS_TRACKS = ['All Tracks', 'Babes Who Fight Bears', 'Strong & Savage']
+const CLASS_TRACKS = ['All Tracks', 'Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const CLASS_TRACK_BADGES = {
   'Babes Who Fight Bears': 'track-bears',
   'Strong & Savage': 'track-strength',
@@ -379,6 +379,24 @@ export default function Schedule({ user, profile }) {
     fetchClasses()
   }
 
+  const updateClassTrack = async (classId, track) => {
+    if (!isCoach || !classId) return
+    const { data, error } = await supabase
+      .from('classes')
+      .update({ track })
+      .eq('id', classId)
+      .select('id, track')
+      .single()
+
+    if (error || !data) {
+      showToast('Could not update class track: ' + (error?.message || 'No class was updated'))
+      return
+    }
+
+    showToast(`Track changed to ${track}`)
+    fetchClasses()
+  }
+
   const markClassAttendance = async (classId, athleteId, attended) => {
     if (!isCoach || !classId || !athleteId) return
     const checkin_time = attended ? currentTimeLabel() : null
@@ -729,6 +747,7 @@ export default function Schedule({ user, profile }) {
             onSignup={() => signup(cls.id)}
             onUnsignup={() => unsignup(cls.id)}
             onCheckIn={() => checkInClass(cls.id)}
+            onTrackChange={(track) => updateClassTrack(cls.id, track)}
             onManualAdd={(athleteId) => manualAdd(cls.id, athleteId)}
             onRemoveAthlete={(athleteId) => removeFromClass(cls.id, athleteId)}
             onToggleAttendance={(athleteId, attended) => markClassAttendance(cls.id, athleteId, attended)}
@@ -744,6 +763,7 @@ export default function Schedule({ user, profile }) {
             onSignup={() => signupInstance(cls.instance?.id)}
             onUnsignup={() => unsignupInstance(cls.instance?.id)}
             onCheckIn={() => checkInInstance(cls.instance?.id)}
+            onTrackChange={(track) => updateClassTrack(cls.id, track)}
             onManualAdd={(athleteId) => manualAddInstance(cls.instance?.id, athleteId)}
             onRemoveAthlete={(athleteId) => removeFromInstance(cls.instance?.id, athleteId)}
             onToggleAttendance={(athleteId, attended) => markInstanceAttendance(cls.instance?.id, athleteId, attended)}
@@ -791,12 +811,15 @@ function ScheduleStyles() {
       .schedule-class-card .class-card-header{align-items:center}.schedule-class-card .class-title{font-size:22px}
       .schedule-signup-button{width:48px;height:48px;flex-shrink:0;border-radius:50%;border:2px solid var(--gold);background:transparent;color:var(--gold-light);font-size:32px;line-height:1;cursor:pointer}
       .schedule-signup-button:disabled{opacity:.45;cursor:not-allowed;font-size:11px}
+      .coach-track-select{display:inline-flex;align-items:center;gap:7px;color:var(--charcoal-light);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+      .coach-track-select select{max-width:220px;background:rgba(255,248,236,.12);border:1px solid var(--border-strong);border-radius:3px;color:var(--bone);font-size:13px;padding:6px 8px;cursor:pointer}
+      .coach-track-select option{background:var(--charcoal);color:var(--bone)}
       @media(max-width:640px){.schedule-heading h2{font-size:26px}.schedule-week-strip{grid-template-columns:28px repeat(7,minmax(34px,1fr)) 28px;gap:1px}.schedule-week-arrow{width:28px}.schedule-day{height:56px;padding:0}.schedule-day strong{font-size:16px}.schedule-class-card .class-card-header{gap:10px}.schedule-class-card .class-card-header>div:last-child{flex-wrap:wrap;justify-content:flex-end}.schedule-class-card .class-title{font-size:20px}.schedule-signup-button{width:44px;height:44px}.schedule-date-heading{font-size:13px}}
     `}</style>
   )
 }
 
-function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
+function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onTrackChange, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const isSignedUp = cls.class_signups?.some(s => s.athlete_id === user.id)
   const mySignup = cls.class_signups?.find(s => s.athlete_id === user.id)
   const spots = cls.capacity - (cls.class_signups?.length || 0)
@@ -822,7 +845,9 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
       <div className="class-meta">
         <span>{dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
         <span>{cls.duration_minutes} min</span>
-        <ClassTrackBadge track={cls.track} />
+        {isCoach
+          ? <CoachTrackSelect track={cls.track} onChange={onTrackChange} />
+          : <ClassTrackBadge track={cls.track} />}
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
       <ClassFooter signups={cls.class_signups || []} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
@@ -830,7 +855,7 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
   )
 }
 
-function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
+function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup, onCheckIn, onTrackChange, onManualAdd, onRemoveAthlete, onToggleAttendance, onAthleteClick }) {
   const instance = cls.instance
   const signups = instance?.instance_signups || []
   const isSignedUp = signups.some(s => s.athlete_id === user.id)
@@ -863,11 +888,24 @@ function RecurringClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsign
         <span>{cls.recurrence_time || '—'}</span>
         <span>{cls.duration_minutes} min</span>
         <span style={{ color: 'var(--gold)', fontSize: '11px' }}>Recurring</span>
-        <ClassTrackBadge track={cls.track} />
+        {isCoach
+          ? <CoachTrackSelect track={cls.track} onChange={onTrackChange} />
+          : <ClassTrackBadge track={cls.track} />}
       </div>
       {cls.description && <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', marginBottom: '10px' }}>{cls.description}</p>}
       <ClassFooter signups={signups} spots={spots} isSignedUp={isSignedUp} isCoach={isCoach} allMembers={allMembers} onManualAdd={onManualAdd} onRemoveAthlete={onRemoveAthlete} onToggleAttendance={onToggleAttendance} onAthleteClick={onAthleteClick} />
     </div>
+  )
+}
+
+function CoachTrackSelect({ track, onChange }) {
+  return (
+    <label className="coach-track-select">
+      <span>Track</span>
+      <select value={track || 'All Tracks'} onChange={event => onChange(event.target.value)}>
+        {CLASS_TRACKS.map(option => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
   )
 }
 
