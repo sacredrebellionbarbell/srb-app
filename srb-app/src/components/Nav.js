@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
 
 const NAV_ITEMS = [
-  { id: 'today', label: 'Training', icon: '☉', coachOnly: false },
+  { id: 'workouts', label: 'Training', icon: '◉', coachOnly: false },
+  { id: 'schedule', label: 'Schedule', icon: '▦', coachOnly: false },
+  { id: 'profile', label: 'Profile', icon: '●', coachOnly: false },
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
   { id: 'resources', label: 'Resources', icon: '🔗', coachOnly: false },
+  { id: 'leaderboards', label: 'Leaderboards', icon: '★', coachOnly: false, target: 'workouts' },
   { id: 'shop', label: 'Shop', icon: '🛍️', coachOnly: false },
-  { id: 'profile', label: 'Profile', icon: '👤', coachOnly: false },
   { id: 'command', label: 'Command Center', icon: '⌁', coachOnly: true },
+  { id: 'planner', label: 'Programming Board', icon: '▦', coachOnly: true },
   { id: 'post', label: 'Post Workout', icon: '✏️', coachOnly: true },
   { id: 'photo', label: 'Upload Photo', icon: '📷', coachOnly: true },
   { id: 'sheet-import', label: 'Import Sheet', icon: '📄', coachOnly: true },
@@ -38,12 +41,14 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
 
   // Close sidebar on tab change
   const handleTabChange = (id) => {
-    setTab(id)
+    const item = NAV_ITEMS.find(navItem => navItem.id === id)
+    setTab(item?.target || id)
     setOpen(false)
   }
 
   const visibleItems = NAV_ITEMS.filter(item => !item.coachOnly || isCoach)
   const currentItem = NAV_ITEMS.find(item => item.id === tab)
+  const bottomItems = NAV_ITEMS.filter(item => ['workouts', 'schedule', 'profile'].includes(item.id))
 
   return (
     <>
@@ -128,7 +133,7 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
         <nav style={{ flex: 1, padding: '0.75rem 0' }}>
           {/* Athlete items */}
           <div style={{ padding: '0 0.75rem', marginBottom: '0.5rem' }}>
-            {visibleItems.filter(i => !i.coachOnly).map(item => (
+            {visibleItems.filter(i => !i.coachOnly && !['workouts', 'schedule', 'profile'].includes(i.id)).map(item => (
               <button
                 key={item.id}
                 onClick={() => handleTabChange(item.id)}
@@ -191,7 +196,40 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
         </div>
       </div>
 
-      {/* Spacer so content doesn't hide under fixed header */}
+      <nav className="bottom-nav" aria-label="Primary navigation">
+        {bottomItems.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={`bottom-nav-item ${tab === item.id ? 'active' : ''}`}
+            onClick={() => handleTabChange(item.id)}
+          >
+            <span className="bottom-nav-icon" aria-hidden="true">{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`bottom-nav-item ${open ? 'active' : ''}`}
+          onClick={() => setOpen(value => !value)}
+          aria-expanded={open}
+        >
+          <span className="bottom-nav-icon bottom-nav-more" aria-hidden="true">•••</span>
+          <span>More</span>
+        </button>
+      </nav>
+
+      <style>{`
+        .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:140;height:74px;padding:7px max(8px,env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));display:grid;grid-template-columns:repeat(4,1fr);background:rgba(28,28,26,.98);border-top:1px solid var(--border-strong);backdrop-filter:blur(12px)}
+        .bottom-nav-item{min-width:0;border:0;background:transparent;color:var(--charcoal-light);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:'Lato',sans-serif;font-size:11px;letter-spacing:0;cursor:pointer}
+        .bottom-nav-item.active{color:var(--gold-light)}
+        .bottom-nav-icon{height:25px;font-size:21px;line-height:25px;font-family:'Cinzel',serif}
+        .bottom-nav-more{letter-spacing:2px;font-size:18px}
+        .main{padding-bottom:112px!important}
+        @media(min-width:821px){.bottom-nav{left:50%;right:auto;transform:translateX(-50%);width:min(620px,100%);border-left:1px solid var(--border);border-right:1px solid var(--border);border-radius:6px 6px 0 0}.bottom-nav-item{font-size:12px}}
+      `}</style>
+
+      {/* Spacers so content doesn't hide under fixed navigation */}
       <div style={{ height: '56px' }} />
     </>
   )
