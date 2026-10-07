@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { PRESCRIPTION_TYPES, getPrescriptionMeta } from '../utils/prescriptionTypes'
 
 const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
-function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', sets: [{ id: Date.now() + Math.random(), set_number: 1, reps: '', load: '', rpe: '' }] } }
+function scoreTypeLabel(type) {
+  return type === 'For Time' ? 'Total Time' : type
+}
+
+function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', scheme: 'reps', sets: [{ id: Date.now() + Math.random(), set_number: 1, reps: '', load: '', rpe: '' }] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
 function newSec() { return { id: null, type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
 function quickSets(count) { return Array.from({ length: count }, (_, i) => newSet(i + 1)) }
@@ -32,7 +37,7 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
           score_type: s.score_type || 'No Score',
           notes: s.notes || '',
           movements: (s.movements || []).sort((a, b) => a.order_index - b.order_index).map(m => ({
-            id: m.id, name: m.name, notes: m.notes || '',
+            id: m.id, name: m.name, notes: m.notes || '', scheme: m.scheme || 'reps',
             sets: (m.sets || []).length > 0
               ? (m.sets || []).sort((a, b) => a.order_index - b.order_index).map(st => ({ id: st.id, set_number: st.set_number, reps: st.reps || '', load: st.load || '', rpe: st.rpe || '' }))
               : [newSet(1)]
@@ -99,7 +104,7 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
       for (let mi = 0; mi < validMovs.length; mi++) {
         const mov = validMovs[mi]
         const { data: movement, error: movErr } = await supabase
-          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: '', order_index: mi }).select().single()
+          .from('movements').insert({ section_id: section.id, name: mov.name, notes: mov.notes, scheme: mov.scheme || 'reps', order_index: mi }).select().single()
         if (movErr || !movement) continue
         const validSets = mov.sets.filter(st => st.reps || st.load)
         if (validSets.length > 0) {
@@ -136,8 +141,14 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
           {secs.map((sec, si) => (
             <div key={si} className="ws-block">
               <div className="ws-head">
-                <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-                <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+                  <label>Section Type</label>
+                  <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                </div>
+                <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+                  <label>Scored By</label>
+                  <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)}>{SCORE_TYPES.map(t => <option key={t} value={t}>{scoreTypeLabel(t)}</option>)}</select>
+                </div>
                 {secs.length > 1 && (
                 <>
                   <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
@@ -154,14 +165,21 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                   <button className="btn-ghost" style={{ fontSize: '11px' }} onClick={() => updSec(si, 'notes', '5 Rounds')}>5 Rounds</button>
                 </div>
               )}
-              {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => (
-                <div key={mi} className="mv-block">
-                  <div className="mv-block-header">
-                    <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name'} />
-                    {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
-                  </div>
-                  <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
-                  <>
+              {sec.type !== 'Warm-Up' && sec.movements.map((mov, mi) => {
+                const prescriptionMeta = getPrescriptionMeta(mov.scheme)
+                return (
+                  <div key={mi} className="mv-block">
+                    <div className="mv-block-header">
+                      <input type="text" value={mov.name} onChange={e => updMov(si, mi, 'name', e.target.value)} placeholder={sec.type === 'Accessory' ? "Movement name (e.g. Farmer's Carry)" : 'Movement name'} />
+                      {sec.movements.length > 1 && <button className="btn-rm" onClick={() => rmMov(si, mi)}>×</button>}
+                    </div>
+                    <div className="field" style={{ marginBottom: '8px' }}>
+                      <label>Prescription Type</label>
+                      <select value={mov.scheme || 'reps'} onChange={e => updMov(si, mi, 'scheme', e.target.value)}>
+                        {PRESCRIPTION_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                      </select>
+                    </div>
+                    <input className="mv-block-notes" type="text" value={mov.notes} onChange={e => updMov(si, mi, 'notes', e.target.value)} placeholder="Movement notes (optional)" />
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
                       {[3, 4, 5].map(count => (
                         <button key={count} className="btn-ghost" style={{ fontSize: '10px' }} onClick={() => setSetCount(si, mi, count)}>
@@ -170,13 +188,13 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                       ))}
                     </div>
                     <div className="set-builder-header">
-                      <span>Set</span><span>Reps</span><span>Load / %</span><span>RPE</span><span></span>
+                      <span>Set</span><span>{prescriptionMeta.label}</span><span>Load / %</span><span>RPE</span><span></span>
                     </div>
                     {mov.sets.map((st, sti) => (
                       <div key={sti} className="set-builder-row">
                         <span className="set-num-label">{st.set_number}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                          <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={sec.type === 'Accessory' ? '100ft, 12, :30' : '3'} style={{ flex: 1 }} />
+                          <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={prescriptionMeta.placeholder} style={{ flex: 1 }} />
                           {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
@@ -191,9 +209,9 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                       </div>
                     ))}
                     <button className="btn-add" onClick={() => addSet(si, mi)}>+ Add Set</button>
-                  </>
-                </div>
-              ))}
+                  </div>
+                )
+              })}
               {sec.type !== 'Warm-Up' && <button className="btn-add" style={{ marginTop: '8px' }} onClick={() => addMov(si)}>+ Add Movement</button>}
             </div>
           ))}

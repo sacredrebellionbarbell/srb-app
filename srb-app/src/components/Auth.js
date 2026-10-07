@@ -1,9 +1,13 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import logo from '../assets/logo.jpg'
 
 export default function Auth() {
-  const [mode, setMode] = useState('login')
+  const isFreeWeekOffer = useMemo(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('offer') === 'free-week' || params.get('signup') === 'free-week'
+  }, [])
+  const [mode, setMode] = useState(isFreeWeekOffer ? 'register' : 'login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [pw, setPw] = useState('')
@@ -21,9 +25,10 @@ export default function Auth() {
   const register = async () => {
     if (!name.trim()) { setErr('Name is required'); return }
     setLoading(true); setErr('')
+    if (isFreeWeekOffer) localStorage.setItem('srb_pending_offer', 'free-week')
     const { error } = await supabase.auth.signUp({
       email, password: pw,
-      options: { data: { name, role: 'athlete' } }
+      options: { data: { name, role: 'athlete', offer: isFreeWeekOffer ? 'free-week' : null } }
     })
     if (error) setErr(error.message)
     else setMsg('Check your email to confirm your account.')
@@ -50,8 +55,19 @@ export default function Auth() {
           <img src={logo} alt="Sacred Rebellion Barbell" />
           <div className="divider" />
           <h1>Sacred Rebellion</h1>
-          <p>Barbell</p>
+          <p>{isFreeWeekOffer ? 'Get Your Free Week' : 'Barbell'}</p>
         </div>
+
+        {isFreeWeekOffer && (
+          <div style={{ background: 'rgba(200,169,106,0.08)', border: '1px solid var(--gold-dark)', borderRadius: '4px', padding: '12px', marginBottom: '1rem', textAlign: 'center' }}>
+            <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '15px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '6px' }}>
+              Get Your Free Week
+            </div>
+            <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.6, margin: 0 }}>
+              Try up to 3 classes. Create your account first, then sign the waiver before booking.
+            </p>
+          </div>
+        )}
 
         {msg && <p style={{ color: 'var(--moss-light)', fontSize: '13px', marginBottom: '1rem', textAlign: 'center' }}>{msg}</p>}
         {err && <p className="auth-error">{err}</p>}
@@ -90,12 +106,12 @@ export default function Auth() {
         {mode === 'reset'
           ? <button className="btn-primary" onClick={resetPassword} disabled={loading}>Send Reset Email</button>
           : <button className="btn-primary" onClick={submit} disabled={loading}>
-              {loading ? 'Loading...' : mode === 'login' ? 'Enter the Rebellion' : 'Create Account'}
+              {loading ? 'Loading...' : mode === 'login' ? 'Enter the Rebellion' : isFreeWeekOffer ? 'Start My Free Week' : 'Create Account'}
             </button>
         }
 
         <div className="auth-toggle">
-          {mode === 'login' && <>New member? <span onClick={() => { setMode('register'); setErr(''); setMsg('') }}>Create account</span></>}
+          {mode === 'login' && <>New member? <span onClick={() => { setMode('register'); setErr(''); setMsg('') }}>{isFreeWeekOffer ? 'Start free week' : 'Create account'}</span></>}
           {mode === 'register' && <>Already a member? <span onClick={() => { setMode('login'); setErr(''); setMsg('') }}>Sign in</span></>}
           {mode === 'reset' && <>Back to <span onClick={() => { setMode('login'); setErr(''); setMsg('') }}>Sign in</span></>}
         </div>

@@ -5,6 +5,7 @@ import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
 import VideoModal from './VideoModal'
 import { canSeeWorkouts, hasClassAccess, hasPrivateTrainingAccess, isCoach as profileIsCoach } from '../utils/access'
+import { formatPrescriptionValue } from '../utils/prescriptionTypes'
 
 const TC = { 'Babes Who Fight Bears': 'track-bears', 'Strong & Savage': 'track-strength', 'Olympic Weightlifting': 'track-open' }
 const RX = [{ e: '✋', k: 'highfive' }, { e: '🔥', k: 'fire' }, { e: '💪', k: 'strong' }]
@@ -708,7 +709,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
                         {sets.length > 0 && (
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
                             <div style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>
-                              {summarizeSets(sets)}
+                              {summarizeSets(sets, m.scheme)}
                             </div>
                             <button
                               className="btn-sm"
@@ -729,7 +730,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
                               ) : (
                                 <>
                                   <span className="set-number">Set {st.set_number}</span>
-                                  {st.reps && <span className="set-reps">{st.reps} {parseInt(st.reps) === 1 ? 'rep' : 'reps'}</span>}
+                                  {st.reps && <span className="set-reps">{formatPrescriptionValue(st.reps, m.scheme)}</span>}
                                   {st.load && <span className="set-load">@ {st.load}</span>}
                                   {st.rpe && <span className="set-rpe">RPE {st.rpe}</span>}
                                 </>
@@ -839,11 +840,11 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
   )
 }
 
-function summarizeSets(sets) {
+function summarizeSets(sets, prescriptionType = 'reps') {
   const count = sets.length
   const reps = [...new Set(sets.map(st => st.reps).filter(Boolean))]
-  if (count === 1) return sets[0]?.reps || '1 set'
-  if (reps.length === 1) return `${count}x${reps[0]}`
+  if (count === 1) return sets[0]?.reps ? formatPrescriptionValue(sets[0].reps, prescriptionType) : '1 set'
+  if (reps.length === 1) return `${count}x${formatPrescriptionValue(reps[0], prescriptionType)}`
   return `${count} sets`
 }
 
@@ -883,7 +884,7 @@ function SetLogModal({ movement, section, workout, userId, onClose, onSave }) {
         <div className="modal-head">
           <div>
             <div className="modal-title">Log Sets</div>
-            <div className="modal-sub">{movement.name} · {summarizeSets(sets)} · {workout.title}</div>
+            <div className="modal-sub">{movement.name} · {summarizeSets(sets, movement.scheme)} · {workout.title}</div>
           </div>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
@@ -901,7 +902,7 @@ function SetLogModal({ movement, section, workout, userId, onClose, onSave }) {
                   <div>
                     <div style={{ fontFamily: 'Cinzel, serif', color: 'var(--gold-light)', fontSize: '12px' }}>Set {row.setNumber}</div>
                     <div style={{ fontSize: '11px', color: 'var(--charcoal-light)', marginTop: '2px' }}>
-                      {[row.reps && `${row.reps} reps`, row.load && `@ ${row.load}`, row.rpe && `RPE ${row.rpe}`].filter(Boolean).join(' · ')}
+                      {[row.reps && formatPrescriptionValue(row.reps, movement.scheme), row.load && `@ ${row.load}`, row.rpe && `RPE ${row.rpe}`].filter(Boolean).join(' · ')}
                     </div>
                   </div>
                   <input
@@ -1181,7 +1182,7 @@ function SectionLeaderboard({ entries, scoreType, userId, reactions, legacyResul
                 {entry.sets.map((s, si) => (
                   <div key={si} style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '3px 0', fontSize: '13px' }}>
                     <span style={{ color: 'var(--charcoal-light)', fontFamily: 'Cinzel, serif', fontSize: '11px', minWidth: '44px' }}>{s.movName} S{s.setNumber}</span>
-                    {s.reps && <span style={{ color: 'var(--bone)' }}>{s.reps} reps</span>}
+                    {s.reps && <span style={{ color: 'var(--bone)' }}>{formatPrescriptionValue(s.reps, s.prescriptionType)}</span>}
                     {s.load && <span style={{ color: 'var(--charcoal-light)', fontSize: '12px' }}>@ {s.load}</span>}
                     <span style={{ color: 'var(--gold-light)', fontFamily: 'Cinzel, serif', marginLeft: 'auto' }}>{s.logged}</span>
                   </div>
@@ -1223,6 +1224,7 @@ function buildMovementLeaderboards(section) {
           athleteMap[sl.athlete_id].allValues.push(sl.value)
           athleteMap[sl.athlete_id].sets.push({
             movName: mov.name,
+            prescriptionType: mov.scheme,
             setNumber: st.set_number,
             reps: st.reps,
             load: st.load,
@@ -1271,6 +1273,7 @@ function buildSectionLeaderboard(section, scoreType) {
           athleteMap[sl.athlete_id].allValues.push(sl.value)
           athleteMap[sl.athlete_id].sets.push({
             movName: mov.name,
+            prescriptionType: mov.scheme,
             setNumber: st.set_number,
             reps: st.reps,
             load: st.load,

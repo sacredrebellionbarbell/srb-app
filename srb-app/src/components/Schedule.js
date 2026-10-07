@@ -585,6 +585,13 @@ export default function Schedule({ user, profile }) {
     fetchOpenGym()
   }
 
+  const removeOpenGymBlock = async (blockId) => {
+    if (!isCoach) return
+    await supabase.from('open_gym_blocks').update({ active: false }).eq('id', blockId)
+    showToast('Open Gym block removed')
+    fetchOpenGym()
+  }
+
   const datedClasses = [
     ...oneTimeClasses.map(cls => ({ kind: 'one-time', cls, sortTime: new Date(cls.start_time).getHours() * 60 + new Date(cls.start_time).getMinutes() })),
     ...recurringClasses.map(cls => ({ kind: 'recurring', cls, sortTime: labelToMinutes(cls.recurrence_time) ?? 9999 }))
@@ -699,6 +706,8 @@ export default function Schedule({ user, profile }) {
         canUsePaidClassAccess={canUseOpenGymAccess}
         openGymAvailable={openGymAvailable}
         slots={openGymSlotsToday}
+        blocks={openGymBlocks}
+        selectedDate={iso}
         showSlotForm={showOpenGymSlotForm}
         setShowSlotForm={setShowOpenGymSlotForm}
         showBlockForm={showOpenGymBlockForm}
@@ -706,6 +715,7 @@ export default function Schedule({ user, profile }) {
         onBook={bookOpenGymSlot}
         onCancelBooking={cancelOpenGymBooking}
         onRemoveSlot={removeOpenGymSlot}
+        onRemoveBlock={removeOpenGymBlock}
         onSaved={fetchOpenGym}
       />
 
@@ -959,7 +969,7 @@ function ClassFooter({ signups, spots, isSignedUp, isCoach, allMembers, onManual
   )
 }
 
-function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable, slots, showSlotForm, setShowSlotForm, showBlockForm, setShowBlockForm, onBook, onCancelBooking, onRemoveSlot, onSaved }) {
+function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable, slots, blocks, selectedDate, showSlotForm, setShowSlotForm, showBlockForm, setShowBlockForm, onBook, onCancelBooking, onRemoveSlot, onRemoveBlock, onSaved }) {
   const [showPicker, setShowPicker] = useState(false)
   const availableSlots = slots.filter(slot => {
     const spots = Math.max((slot.capacity || 1) - (slot.bookings?.length || 0), 0)
@@ -1053,6 +1063,7 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
               {!slot.defaultSlot && <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemoveSlot(slot.id)}>Remove</button>}
             </div>
           ))}
+          <OpenGymBlocksSchedule blocks={blocks} selectedDate={selectedDate} onRemove={onRemoveBlock} />
         </div>
       )}
 
@@ -1068,6 +1079,71 @@ function OpenGymModule({ isCoach, user, canUsePaidClassAccess, openGymAvailable,
           onCancelBooking={onCancelBooking}
           onClose={() => setShowPicker(false)}
         />
+      )}
+    </div>
+  )
+}
+
+function OpenGymBlocksSchedule({ blocks, selectedDate, onRemove }) {
+  const activeBlocks = (blocks || []).filter(block => block.active !== false)
+  const recurringBlocks = activeBlocks.filter(block => !block.block_date)
+  const datedBlocks = activeBlocks
+    .filter(block => block.block_date)
+    .sort((a, b) => a.block_date.localeCompare(b.block_date) || a.start_time.localeCompare(b.start_time))
+
+  const blockTime = block => {
+    const endMinutes = inputTimeToMinutes(block.start_time) + (block.duration_minutes || 60)
+    return `${timeInputToLabel(block.start_time)} - ${timeInputToLabel(minutesToInputTime(endMinutes % 1440))}`
+  }
+
+  return (
+    <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+      <div className="class-247-title" style={{ fontSize: '15px' }}>Blocked Times</div>
+      <div className="class-247-note">Your recurring weekly blocks and one-time closures are shown here.</div>
+
+      {activeBlocks.length === 0 && <div className="open-gym-meta" style={{ marginTop: '10px' }}>No active Open Gym blocks.</div>}
+
+      {recurringBlocks.length > 0 && (
+        <div className="open-gym-block-week">
+          {DAYS.map((day, index) => {
+            const dayBlocks = recurringBlocks
+              .filter(block => (block.recurrence_days || '').split(',').map(value => value.trim()).includes(day))
+              .sort((a, b) => a.start_time.localeCompare(b.start_time))
+            return (
+              <div key={day} className="open-gym-block-day">
+                <div className="open-gym-block-day-name">{['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][index]}</div>
+                <div className="open-gym-block-day-times">
+                  {dayBlocks.length === 0 && <span className="open-gym-meta">Open all day</span>}
+                  {dayBlocks.map(block => (
+                    <span key={block.id} className="open-gym-block-chip">
+                      <strong>{blockTime(block)}</strong>
+                      {block.reason && <small>{block.reason}</small>}
+                      <button type="button" onClick={() => onRemove(block.id)} aria-label={`Remove ${day} block`}>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {datedBlocks.length > 0 && (
+        <div style={{ marginTop: '12px' }}>
+          <div className="open-gym-block-section-label">One-Time Blocks</div>
+          {datedBlocks.map(block => {
+            const dateLabel = new Date(`${block.block_date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+            return (
+              <div key={block.id} className={`open-gym-slot${block.block_date === selectedDate ? ' selected-block' : ''}`}>
+                <div>
+                  <div className="open-gym-time">{dateLabel} · {blockTime(block)}</div>
+                  {block.reason && <div className="open-gym-notes">{block.reason}</div>}
+                </div>
+                <button className="btn-ghost" style={{ fontSize: '11px', color: 'var(--rose-light)' }} onClick={() => onRemove(block.id)}>Remove</button>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )

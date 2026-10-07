@@ -6,6 +6,10 @@ const TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifti
 const STYPES = ['Warm-Up', 'Strength', 'Accessory', 'Conditioning', 'Core', 'Cooldown', 'Skills', 'Custom']
 const SCORE_TYPES = ['No Score', 'Heaviest Set', 'For Time', 'AMRAP', 'Max Reps / Calories', 'Max Distance']
 
+function scoreTypeLabel(type) {
+  return type === 'For Time' ? 'Total Time' : type
+}
+
 function newSec() { return { id: Date.now() + Math.random(), type: 'Strength', score_type: 'No Score', notes: '', movements: [newMov()] } }
 function newMov() { return { id: Date.now() + Math.random(), name: '', notes: '', demo_url: '', scheme: 'reps', sets: [newSet(1)] } }
 function newSet(n) { return { id: Date.now() + Math.random(), set_number: n, reps: '', load: '', rpe: '' } }
@@ -189,8 +193,14 @@ export default function PostWorkout({ user, onPosted }) {
       {secs.map((sec, si) => (
         <div key={sec.id} className="ws-block">
           <div className="ws-head">
-            <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
-            <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)} style={{ flex: 'none', width: 'auto' }}>{SCORE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+              <label>Section Type</label>
+              <select value={sec.type} onChange={e => updSec(si, 'type', e.target.value)}>{STYPES.map(t => <option key={t} value={t}>{t}</option>)}</select>
+            </div>
+            <div className="field" style={{ flex: 1, marginBottom: 0 }}>
+              <label>Scored By</label>
+              <select value={sec.score_type} onChange={e => updSec(si, 'score_type', e.target.value)}>{SCORE_TYPES.map(t => <option key={t} value={t}>{scoreTypeLabel(t)}</option>)}</select>
+            </div>
             {secs.length > 1 && (
                 <>
                   <button className="btn-rm" onClick={() => moveSec(si, -1)} disabled={si === 0} title="Move up" style={{ fontSize: '14px' }}>↑</button>
