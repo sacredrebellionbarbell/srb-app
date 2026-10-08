@@ -381,13 +381,21 @@ export default function Schedule({ user, profile }) {
 
   const updateClassTrack = async (classId, track) => {
     if (!isCoach || !classId) return
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('classes')
       .update({ track })
       .eq('id', classId)
+      .select('id, track')
 
     if (error) {
       showToast('Could not update class track: ' + error.message)
+      return
+    }
+
+    const savedClass = (data || []).find(cls => cls.id === classId)
+    if (!savedClass || savedClass.track !== track) {
+      showToast('The track did not save. Please try again or check coach permissions.')
+      fetchClasses()
       return
     }
 
