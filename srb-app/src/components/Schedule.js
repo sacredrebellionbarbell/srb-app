@@ -11,9 +11,53 @@ import {
   isFreeTrial
 } from '../utils/access'
 
-function toISO(d) { return d.toISOString().split('T')[0] }
+const GYM_TIME_ZONE = 'America/Chicago'
+
+function dateKeyFromParts(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function toISO(d) {
+  return dateKeyFromParts(d.getFullYear(), d.getMonth() + 1, d.getDate())
+}
+
+function gymDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: GYM_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function parseCalendarDate(dateKey) {
+  const [year, month, day] = dateKey.split('-').map(Number)
+  return new Date(year, month - 1, day, 12, 0, 0)
+}
+
+function timeInGymMinutes(value) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: GYM_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return Number(values.hour) * 60 + Number(values.minute)
+}
+
+function gymTimeLabel(value) {
+  return new Date(value).toLocaleTimeString('en-US', {
+    timeZone: GYM_TIME_ZONE,
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) }
-function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }
+function currentTimeLabel() { return gymTimeLabel(new Date()) }
 
 // Day of week helpers
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -26,8 +70,7 @@ const CLASS_TRACK_BADGES = {
 }
 
 function getDayOfWeek(dateStr) {
-  // Use UTC to avoid timezone shifting the date
-  const d = new Date(dateStr + 'T12:00:00')
+  const d = parseCalendarDate(dateStr)
   return DAYS[d.getDay()]
 }
 
@@ -91,8 +134,8 @@ function defaultOpenGymSlots() {
 
 function classWindow(cls, isoDate) {
   if (cls.start_time) {
-    const start = new Date(cls.start_time)
-    return { start: start.getHours() * 60 + start.getMinutes(), end: start.getHours() * 60 + start.getMinutes() + (cls.duration_minutes || 60) }
+    const start = timeInGymMinutes(cls.start_time)
+    return { start, end: start + (cls.duration_minutes || 60) }
   }
   const start = labelToMinutes(cls.recurrence_time)
   if (start == null) return null
@@ -123,7 +166,7 @@ function ClassTrackBadge({ track }) {
 }
 
 export default function Schedule({ user, profile }) {
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const [currentDate, setCurrentDate] = useState(() => parseCalendarDate(gymDateKey()))
   const [scheduleView, setScheduleView] = useState('schedule')
   const [oneTimeClasses, setOneTimeClasses] = useState([])
   const [recurringClasses, setRecurringClasses] = useState([])
@@ -159,14 +202,20 @@ export default function Schedule({ user, profile }) {
     setLoading(true)
 
     // Fetch one-time classes for this exact date
-    const { data: oneTime } = await supabase
+    const queryStart = new Date(`${iso}T00:00:00.000Z`)
+    queryStart.setUTCDate(queryStart.getUTCDate() - 1)
+    const queryEnd = new Date(`${iso}T00:00:00.000Z`)
+    queryEnd.setUTCDate(queryEnd.getUTCDate() + 2)
+
+    const { data: oneTimeRows } = await supabase
       .from('classes')
       .select('*, class_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
       .eq('is_247', false)
       .is('recurrence_days', null)
-      .gte('start_time', `${iso}T00:00:00.000Z`)
-      .lte('start_time', `${iso}T23:59:59.999Z`)
+      .gte('start_time', queryStart.toISOString())
+      .lt('start_time', queryEnd.toISOString())
       .order('start_time', { ascending: true })
+    const oneTime = (oneTimeRows || []).filter(cls => gymDateKey(cls.start_time) === iso)
 
     // Fetch recurring classes that include today's day of week
     const { data: recurring } = await supabase
@@ -212,7 +261,7 @@ export default function Schedule({ user, profile }) {
       return { ...cls, instance }
     }))
 
-    setOneTimeClasses(oneTime || [])
+    setOneTimeClasses(oneTime)
     setRecurringClasses(recurringWithInstances.filter(Boolean))
     setHas247(c247 || null)
     setLoading(false)
@@ -282,8 +331,8 @@ export default function Schedule({ user, profile }) {
 
   const prevDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() - 1); setCurrentDate(d) }
   const nextDay = () => { const d = new Date(currentDate); d.setDate(d.getDate() + 1); setCurrentDate(d) }
-  const goToday = () => setCurrentDate(new Date())
-  const isToday = toISO(currentDate) === toISO(new Date())
+  const goToday = () => setCurrentDate(parseCalendarDate(gymDateKey()))
+  const isToday = toISO(currentDate) === gymDateKey()
 
   // Sign up for a one-time class
   const signup = async (classId) => {
@@ -299,7 +348,7 @@ export default function Schedule({ user, profile }) {
       const cls = oneTimeClasses.find(c => c.id === classId)
       const className = cls?.title || 'a class'
       const classTime = cls?.start_time
-        ? new Date(cls.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        ? gymTimeLabel(cls.start_time)
         : ''
 
       await notifyCoach(
@@ -601,7 +650,7 @@ export default function Schedule({ user, profile }) {
   }
 
   const datedClasses = [
-    ...oneTimeClasses.map(cls => ({ kind: 'one-time', cls, sortTime: new Date(cls.start_time).getHours() * 60 + new Date(cls.start_time).getMinutes() })),
+    ...oneTimeClasses.map(cls => ({ kind: 'one-time', cls, sortTime: timeInGymMinutes(cls.start_time) })),
     ...recurringClasses.map(cls => ({ kind: 'recurring', cls, sortTime: labelToMinutes(cls.recurrence_time) ?? 9999 }))
   ].sort((a, b) => a.sortTime - b.sortTime)
 
@@ -636,7 +685,7 @@ export default function Schedule({ user, profile }) {
         <button className="schedule-week-arrow" onClick={prevDay} aria-label="Previous day">‹</button>
         {dateStrip.map(date => {
           const selected = toISO(date) === iso
-          const today = toISO(date) === toISO(new Date())
+          const today = toISO(date) === gymDateKey()
           return (
             <button key={toISO(date)} className={`schedule-day ${selected ? 'selected' : ''}`} onClick={() => setCurrentDate(date)}>
               <span>{date.toLocaleDateString('en-US', { weekday: 'narrow' })}</span>
@@ -859,7 +908,7 @@ function OneTimeClassCard({ cls, user, isCoach, allMembers, onSignup, onUnsignup
         </div>
       </div>
       <div className="class-meta">
-        <span>{dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+        <span>{gymTimeLabel(dt)}</span>
         <span>{cls.duration_minutes} min</span>
         {isCoach
           ? <CoachTrackSelect track={cls.track} onChange={onTrackChange} />
@@ -1240,7 +1289,7 @@ function OpenGymSlotForm({ onSaved, onCancel }) {
 }
 
 function OpenGymBlockForm({ onSaved, onCancel }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = gymDateKey()
   const [isRecurring, setIsRecurring] = useState(false)
   const [date, setDate] = useState(today)
   const [time, setTime] = useState('10:00')

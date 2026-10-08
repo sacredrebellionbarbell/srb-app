@@ -35,14 +35,34 @@ const STRENGTH_TERMS = [
   'pull', 'row', 'lunge', 'hinge', 'thruster', 'carry'
 ]
 
-function toISO(d) { return d.toISOString().split('T')[0] }
-function parseISO(dateStr) { return new Date(dateStr + 'T12:00:00') }
+const GYM_TIME_ZONE = 'America/Chicago'
+
+function toISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function gymDateKey(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: GYM_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+function parseISO(dateStr) {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day, 12, 0, 0)
+}
+function timeInGymMinutes(value) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: GYM_TIME_ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return Number(values.hour) * 60 + Number(values.minute)
+}
+function gymTimeLabel(value) {
+  return new Date(value).toLocaleTimeString('en-US', { timeZone: GYM_TIME_ZONE, hour: 'numeric', minute: '2-digit' })
+}
 function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d }
 function formatDate(d) { return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) }
 function shortDate(d) { return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }
 function getDayOfWeek(dateStr) { return DAYS[parseISO(dateStr).getDay()] }
 function initials(name) { return (name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) }
-function currentTimeLabel() { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) }
+function currentTimeLabel() { return gymTimeLabel(new Date()) }
 
 function timeInputToLabel(value) {
   if (!value) return ''
@@ -96,8 +116,8 @@ function defaultOpenGymSlots() {
 
 function classWindow(cls) {
   if (cls.start_time) {
-    const start = new Date(cls.start_time)
-    return { start: start.getHours() * 60 + start.getMinutes(), end: start.getHours() * 60 + start.getMinutes() + (cls.duration_minutes || 60) }
+    const start = timeInGymMinutes(cls.start_time)
+    return { start, end: start + (cls.duration_minutes || 60) }
   }
   const start = labelToMinutes(cls.recurrence_time)
   if (start == null) return null
@@ -124,7 +144,7 @@ function rowRepeatsToday(row, dayOfWeek, isoDate) {
 
 function timeLabel(cls) {
   if (cls.recurrence_time) return cls.recurrence_time
-  if (cls.start_time) return new Date(cls.start_time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (cls.start_time) return gymTimeLabel(cls.start_time)
   return 'Class time'
 }
 
@@ -243,7 +263,7 @@ function summarizeSets(sets, scheme) {
 }
 
 export default function Today({ user, profile, setTab }) {
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const [currentDate, setCurrentDate] = useState(() => parseISO(gymDateKey()))
   const iso = toISO(currentDate)
   const dayOfWeek = getDayOfWeek(iso)
   const isCoach = profileIsCoach(profile)
@@ -402,14 +422,20 @@ export default function Today({ user, profile, setTab }) {
     const dateIso = toISO(dateObj)
     const dateDay = getDayOfWeek(dateIso)
 
-    const { data: oneTime } = await supabase
+    const queryStart = new Date(`${dateIso}T00:00:00.000Z`)
+    queryStart.setUTCDate(queryStart.getUTCDate() - 1)
+    const queryEnd = new Date(`${dateIso}T00:00:00.000Z`)
+    queryEnd.setUTCDate(queryEnd.getUTCDate() + 2)
+
+    const { data: oneTimeRows } = await supabase
       .from('classes')
       .select('*, class_signups(athlete_id, checkin_time, profiles(name, avatar_url))')
       .eq('is_247', false)
       .is('recurrence_days', null)
-      .gte('start_time', `${dateIso}T00:00:00.000Z`)
-      .lte('start_time', `${dateIso}T23:59:59.999Z`)
+      .gte('start_time', queryStart.toISOString())
+      .lt('start_time', queryEnd.toISOString())
       .order('start_time', { ascending: true })
+    const oneTime = (oneTimeRows || []).filter(cls => gymDateKey(cls.start_time) === dateIso)
 
     const { data: recurring } = await supabase
       .from('classes')
@@ -442,7 +468,7 @@ export default function Today({ user, profile, setTab }) {
     }))
 
     return [
-      ...(oneTime || []).map(cls => ({ ...cls, date: dateIso, dateObj, recurring: false })),
+      ...oneTime.map(cls => ({ ...cls, date: dateIso, dateObj, recurring: false })),
       ...recurringWithInstances.filter(Boolean)
     ]
   }, [])
@@ -705,8 +731,8 @@ export default function Today({ user, profile, setTab }) {
 
   const prevDay = () => setCurrentDate(d => addDays(d, -1))
   const nextDay = () => setCurrentDate(d => addDays(d, 1))
-  const goToday = () => setCurrentDate(new Date())
-  const isToday = iso === toISO(new Date())
+  const goToday = () => setCurrentDate(parseISO(gymDateKey()))
+  const isToday = iso === gymDateKey()
 
   const signup = async cls => {
     if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your trial classes are complete.'); return }
