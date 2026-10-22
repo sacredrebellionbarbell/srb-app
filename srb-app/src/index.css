@@ -213,6 +213,7 @@ body{font-family:'Lato',sans-serif;background:var(--charcoal);color:var(--bone);
 .mv-block-header input{flex:1;background:rgba(245,240,232,0.06);border:1px solid var(--border);border-radius:2px;padding:7px 10px;color:var(--bone);font-family:'Lato',sans-serif;font-size:15px;outline:none}
 .mv-block-notes{width:100%;background:rgba(245,240,232,0.04);border:1px solid var(--border);border-radius:2px;padding:6px 10px;color:var(--bone);font-family:'Lato',sans-serif;font-size:13px;outline:none;margin-bottom:8px;font-style:italic}
 .set-builder-row{display:grid;grid-template-columns:36px 1fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px}
+.set-builder-field{display:flex;align-items:center;gap:4px;min-width:0}
 .set-builder-row input{background:rgba(245,240,232,0.06);border:1px solid var(--border);border-radius:2px;padding:6px 8px;color:var(--bone);font-family:'Lato',sans-serif;font-size:14px;outline:none;width:100%}
 .set-num-label{font-family:'Cinzel',serif;font-size:12px;color:var(--charcoal-light);text-align:center}
 .set-builder-header{display:grid;grid-template-columns:36px 1fr 1fr 1fr auto;gap:6px;margin-bottom:4px}
@@ -366,6 +367,30 @@ body{background:var(--charcoal);font-size:22px;line-height:1.6}
 .set-builder-header span{font-size:13px;color:var(--charcoal-light)}
 .set-builder-row{grid-template-columns:48px 1fr 1fr 1fr auto;gap:8px}
 .set-num-label{font-size:16px;color:var(--charcoal-light)}
+.section-log-action{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+.section-log-note-preview{font-size:13px;color:var(--moss-light)}
+.section-log-modal{max-width:720px}
+.section-log-prescription{color:var(--charcoal-light);font-size:15px;line-height:1.6;margin-bottom:1rem;font-style:italic}
+.section-log-movement{border:1px solid var(--border);background:rgba(255,248,236,0.035);padding:14px;margin-bottom:12px}
+.section-log-movement-title{font-family:'Cinzel',serif;color:var(--gold-light);font-size:18px}
+.section-log-movement-notes,.section-log-empty{font-size:13px;color:var(--charcoal-light);margin:4px 0 10px}
+.section-log-set{display:grid;grid-template-columns:minmax(105px,1fr) minmax(130px,1.5fr) 42px auto;gap:8px;align-items:center;padding:9px 0;border-top:1px solid rgba(200,169,106,0.12)}
+.section-log-set-label{display:flex;flex-direction:column;gap:2px}
+.section-log-set-label strong{font-family:'Cinzel',serif;color:var(--bone);font-size:13px}
+.section-log-set-label span{font-size:12px;color:var(--charcoal-light)}
+.section-log-set input{width:100%;background:rgba(255,248,236,0.12);border:1px solid var(--border-strong);color:var(--bone);font-size:17px;padding:10px 12px}
+.copy-down{width:42px;height:42px;background:transparent;border:1px solid var(--border-strong);color:var(--gold-light);font-size:20px;cursor:pointer}
+.copy-down:disabled{opacity:.3;cursor:not-allowed}
+.made-miss-control{display:flex;border:1px solid var(--border-strong)}
+.made-miss-control button{min-height:42px;padding:8px 12px;border:0;background:transparent;color:var(--charcoal-light);cursor:pointer}
+.made-miss-control .made.active{background:var(--moss);color:white}
+.made-miss-control .miss.active{background:var(--rose);color:white}
+.section-score-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.workout-high-fives{margin-top:18px;border-top:1px solid var(--border);padding-top:14px}
+.high-five-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(200,169,106,0.1)}
+.high-five-athlete{flex:1;text-align:left;background:none;border:0;color:var(--bone);font-size:17px;cursor:pointer}
+.high-five-button{min-width:70px;min-height:44px}
+.workout-editor-modal{max-width:680px}
 @media(max-width:640px){
   body{font-size:20px}
   .main{padding:1.5rem 1rem}
@@ -382,6 +407,33 @@ body{background:var(--charcoal);font-size:22px;line-height:1.6}
   .btn-sm,.btn-moss,.btn-ghost,.btn-add,.btn-add-sec,.filter-btn{font-size:14px}
   .set-builder-row{grid-template-columns:38px 1fr;gap:8px}
   .set-builder-header{display:none}
+}
+@media (pointer:coarse), (max-width:900px){
+  .set-builder-header{display:none}
+  .set-builder-row{grid-template-columns:42px minmax(0,1fr) auto;align-items:start;padding:10px 0;border-bottom:1px solid rgba(200,169,106,0.14)}
+  .set-builder-row>.set-num-label{grid-row:1 / 4;padding-top:28px}
+  .set-builder-field{grid-column:2;position:relative;display:grid;grid-template-columns:1fr auto;padding-top:20px}
+  .set-builder-field:before{content:attr(data-label);position:absolute;top:0;left:0;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--charcoal-light)}
+  .set-builder-row>.btn-rm{grid-column:3;grid-row:1 / 4;align-self:center;min-width:44px;min-height:44px}
+  .set-builder-field input{min-height:48px}
+}
+@media (orientation:landscape) and (max-height:600px){
+  .modal-wrap{padding:0;align-items:stretch}
+  .workout-editor-modal{max-width:none;width:100%;height:100dvh;max-height:100dvh;border-radius:0}
+  .workout-editor-modal .modal-head{position:sticky;top:0;z-index:5;background:#2C2C2A;padding:12px max(18px,env(safe-area-inset-right)) 12px max(18px,env(safe-area-inset-left))}
+  .workout-editor-modal .modal-body{padding:16px max(22px,env(safe-area-inset-right)) calc(22px + env(safe-area-inset-bottom)) max(22px,env(safe-area-inset-left))}
+  .workout-editor-modal .two-col{grid-template-columns:1fr 1fr}
+  .workout-editor-modal .set-builder-row{grid-template-columns:42px repeat(3,minmax(120px,1fr)) auto}
+  .workout-editor-modal .set-builder-row>.set-num-label{grid-row:auto;padding-top:28px}
+  .workout-editor-modal .set-builder-field{grid-column:auto}
+  .workout-editor-modal .set-builder-row>.btn-rm{grid-column:auto;grid-row:auto;margin-top:20px}
+}
+@media(max-width:640px){
+  .section-log-set{grid-template-columns:1fr 42px}
+  .section-log-set-label{grid-column:1 / 3}
+  .section-log-set input{grid-column:1}
+  .made-miss-control{grid-column:1 / 3}
+  .made-miss-control button{flex:1}
 }
 .ws-block input,.ws-block select,.ws-block textarea,.mv-block input,.mv-block select,.mv-block textarea,.set-builder-row input{
   background:rgba(255,248,236,0.2);

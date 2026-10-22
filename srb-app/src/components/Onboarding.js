@@ -161,7 +161,10 @@ export default function Onboarding({ user, profile, onComplete }) {
   const startFreeTrial = async () => {
     setSavingFounding(true)
 
-    const updates = { membership_type: 'Free Trial' }
+    const updates = {
+      membership_type: 'Free Trial',
+      trial_started_at: currentProfile?.trial_started_at || new Date().toISOString()
+    }
     const { error } = await supabase.from('profiles').update(updates).eq('id', user.id)
 
     if (!error) {

@@ -7,8 +7,10 @@ import {
   FREE_TRIAL_CLASS_LIMIT,
   hasClassAccess,
   hasOpenGymAccess,
+  hasActiveFreeTrial,
   isCoach as profileIsCoach,
-  isFreeTrial
+  isFreeTrial,
+  isFreeTrialExpired
 } from '../utils/access'
 
 const GYM_TIME_ZONE = 'America/Chicago'
@@ -188,10 +190,11 @@ export default function Schedule({ user, profile }) {
   const [openGymAvailable, setOpenGymAvailable] = useState(true)
   const isCoach = profileIsCoach(profile)
   const isTrial = isFreeTrial(profile)
+  const trialExpired = isFreeTrialExpired(profile)
   const { permission, subscribed, loading: pushLoading, subscribe, unsubscribe } = usePushNotifications(user)
   const canUsePaidClassAccess = hasClassAccess(profile)
   const canUseOpenGymAccess = hasOpenGymAccess(profile)
-  const canSignUp = canUsePaidClassAccess || (isTrial && trialUses < FREE_TRIAL_CLASS_LIMIT)
+  const canSignUp = canUsePaidClassAccess || (hasActiveFreeTrial(profile) && trialUses < FREE_TRIAL_CLASS_LIMIT)
 
   const showToast = msg => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -336,6 +339,7 @@ export default function Schedule({ user, profile }) {
 
   // Sign up for a one-time class
   const signup = async (classId) => {
+    if (trialExpired) { showToast('Your 10-day free trial window has ended. Activate a membership to keep training.'); return }
     if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your free trial classes are used. Upgrade to keep training.'); return }
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
@@ -369,6 +373,7 @@ export default function Schedule({ user, profile }) {
 
   // Sign up for a recurring class instance
   const signupInstance = async (instanceId) => {
+    if (trialExpired) { showToast('Your 10-day free trial window has ended. Activate a membership to keep training.'); return }
     if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your free trial classes are used. Upgrade to keep training.'); return }
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the liability waiver in your Profile tab first.'); return }
@@ -780,9 +785,9 @@ export default function Schedule({ user, profile }) {
         <div className="panel" style={{ marginBottom: '1rem' }}>
           <div className="panel-title">Free Trial</div>
           <p style={{ fontSize: '14px', color: 'var(--charcoal-light)', lineHeight: 1.6, margin: 0 }}>
-            {Math.min(trialUses, FREE_TRIAL_CLASS_LIMIT)} of {FREE_TRIAL_CLASS_LIMIT} trial classes used. Free trials include classes only; programming and open gym unlock with membership.
+            {Math.min(trialUses, FREE_TRIAL_CLASS_LIMIT)} of {FREE_TRIAL_CLASS_LIMIT} trial classes used. Free trials include classes only and expire 10 days after signup; programming and open gym unlock with membership.
           </p>
-          {trialUses >= FREE_TRIAL_CLASS_LIMIT && (
+          {(trialExpired || trialUses >= FREE_TRIAL_CLASS_LIMIT) && (
             <p style={{ fontSize: '14px', color: 'var(--gold-light)', lineHeight: 1.6, margin: '10px 0 0' }}>
               Your trial classes are complete. Upgrade in Profile to keep signing up.
             </p>

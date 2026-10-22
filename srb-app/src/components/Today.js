@@ -8,10 +8,12 @@ import {
   FREE_TRIAL_CLASS_LIMIT,
   canSeeWorkouts,
   hasClassAccess,
+  hasActiveFreeTrial,
   hasOpenGymAccess,
   hasPrivateTrainingAccess,
   isCoach as profileIsCoach,
-  isFreeTrial
+  isFreeTrial,
+  isFreeTrialExpired
 } from '../utils/access'
 
 const PUBLIC_TRACKS = ['Babes Who Fight Bears', 'Strong & Savage', 'Olympic Weightlifting']
@@ -268,6 +270,7 @@ export default function Today({ user, profile, setTab }) {
   const dayOfWeek = getDayOfWeek(iso)
   const isCoach = profileIsCoach(profile)
   const isTrial = isFreeTrial(profile)
+  const trialExpired = isFreeTrialExpired(profile)
   const workoutAccess = canSeeWorkouts(profile)
   const classAccess = hasClassAccess(profile)
   const openGymAccess = hasOpenGymAccess(profile)
@@ -702,7 +705,7 @@ export default function Today({ user, profile, setTab }) {
     const signups = signupsForClass(cls)
     return signups.some(signup => signup.athlete_id === user.id)
   })
-  const canSignUp = classAccess || (isTrial && trialUses < FREE_TRIAL_CLASS_LIMIT)
+  const canSignUp = classAccess || (hasActiveFreeTrial(profile) && trialUses < FREE_TRIAL_CLASS_LIMIT)
   const trialRemaining = Math.max(FREE_TRIAL_CLASS_LIMIT - trialUses, 0)
   const todaysClassWindows = classes.map(cls => classWindow(cls)).filter(Boolean)
   const todaysBlocks = openGymBlocks.filter(block => rowRepeatsToday(block, dayOfWeek, iso))
@@ -735,6 +738,7 @@ export default function Today({ user, profile, setTab }) {
   const isToday = iso === gymDateKey()
 
   const signup = async cls => {
+    if (trialExpired) { showToast('Your 10-day trial window has ended. Activate a membership to keep training.'); return }
     if (isTrial && trialUses >= FREE_TRIAL_CLASS_LIMIT) { showToast('Your trial classes are complete.'); return }
     if (!canSignUp) { showToast('Your membership does not include class access.'); return }
     if (!profile?.waiver_signed) { showToast('Please sign the waiver first.'); return }

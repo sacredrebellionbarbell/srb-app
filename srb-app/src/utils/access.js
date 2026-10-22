@@ -1,4 +1,5 @@
 export const FREE_TRIAL_CLASS_LIMIT = 3
+export const FREE_TRIAL_DURATION_DAYS = 10
 
 export const MEMBERSHIP_TYPES = [
   'Free Trial',
@@ -51,6 +52,19 @@ export function isCoach(profile) {
 
 export function isFreeTrial(profile) {
   return profile?.membership_type === 'Free Trial'
+}
+
+export function isFreeTrialExpired(profile, now = new Date()) {
+  if (!isFreeTrial(profile)) return false
+  const startedAt = profile?.trial_started_at || profile?.created_at
+  if (!startedAt) return false
+  const expiresAt = new Date(startedAt)
+  expiresAt.setDate(expiresAt.getDate() + FREE_TRIAL_DURATION_DAYS)
+  return now >= expiresAt
+}
+
+export function hasActiveFreeTrial(profile, now = new Date()) {
+  return isFreeTrial(profile) && !isFreeTrialExpired(profile, now)
 }
 
 export function isPaidMember(profile) {

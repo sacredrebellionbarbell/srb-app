@@ -4,6 +4,7 @@ import PrepareModal from './PrepareModal'
 import EditWorkout from './EditWorkout'
 import AthletePanel from './AthletePanel'
 import VideoModal from './VideoModal'
+import SectionLogModal from './SectionLogModal'
 import { canSeeWorkouts, hasClassAccess, hasPrivateTrainingAccess, isCoach as profileIsCoach } from '../utils/access'
 import { formatPrescriptionValue } from '../utils/prescriptionTypes'
 
@@ -409,6 +410,53 @@ export default function Workouts({ user, profile }) {
     return true
   }
 
+  const logSection = async (section, workoutId, { rows, sectionLog }) => {
+    const setPayload = rows
+      .filter(row => row.value.trim())
+      .map(row => ({
+        set_id: row.setId,
+        movement_id: row.movementId,
+        workout_id: workoutId,
+        athlete_id: user.id,
+        value: formatSetLogValue(row.value, row.made)
+      }))
+
+    let savedSetLogs = []
+    if (setPayload.length) {
+      const { data, error } = await supabase.from('set_logs')
+        .upsert(setPayload, { onConflict: 'set_id,athlete_id' })
+        .select('*')
+      if (error) { showToast('Error: ' + error.message); return false }
+      savedSetLogs = data || setPayload
+    }
+
+    const hasSectionLog = sectionLog.score != null || sectionLog.rounds != null || sectionLog.reps != null || sectionLog.notes
+    let savedSectionLog = null
+    if (hasSectionLog) {
+      const { data, error } = await supabase.from('section_logs').upsert(
+        { section_id: section.id, workout_id: workoutId, athlete_id: user.id, ...sectionLog },
+        { onConflict: 'section_id,athlete_id' }
+      ).select('*').single()
+      if (error) { showToast('Error: ' + error.message); return false }
+      savedSectionLog = data
+    }
+
+    if (!savedSetLogs.length && !savedSectionLog) {
+      showToast('Add a result or note first')
+      return false
+    }
+
+    const resultRow = await ensureResultRow(workoutId)
+    const logsByMovement = savedSetLogs.reduce((groups, log) => {
+      groups[log.movement_id] = [...(groups[log.movement_id] || []), log]
+      return groups
+    }, {})
+    Object.entries(logsByMovement).forEach(([movementId, logs]) => updateSetLogsInState(workoutId, movementId, logs, resultRow))
+    if (savedSectionLog) updateSectionLogInState(workoutId, section.id, savedSectionLog, resultRow)
+    showToast(`${section.type} logged`)
+    return true
+  }
+
   const updateSectionLogInState = (workoutId, sectionId, savedLog, resultRow) => {
     setWorkouts(prev => prev.map(workout => {
       if (workout.id !== workoutId) return workout
@@ -589,7 +637,7 @@ export default function Workouts({ user, profile }) {
           isFuture={isFuture}
           expanded={expandedId === w.id}
           onToggle={() => setExpandedId(expandedId === w.id ? null : w.id)}
-          onOpenLogSets={payload => setLogModal(payload)}
+          onOpenLogSection={payload => setLogModal(payload)}
           onLogSectionScore={logSectionScore}
           onToggleReaction={toggleReaction}
           onPrepare={() => setPrepare({ workout: w, movements: getStrengthMovements(w) })}
@@ -619,14 +667,13 @@ export default function Workouts({ user, profile }) {
       {toast && <div className="toast">{toast}</div>}
 
       {logModal && (
-        <SetLogModal
-          movement={logModal.movement}
+        <SectionLogModal
           section={logModal.section}
           workout={logModal.workout}
           userId={user.id}
           onClose={() => setLogModal(null)}
-          onSave={async rows => {
-            const saved = await logMovementSets(logModal.workout.id, logModal.movement.id, rows)
+          onSave={async payload => {
+            const saved = await logSection(logModal.section, logModal.workout.id, payload)
             if (saved) setLogModal(null)
             return saved
           }}
@@ -644,7 +691,7 @@ export default function Workouts({ user, profile }) {
   )
 }
 
-function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onOpenLogSets, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onDelete, onAthleteClick }) {
+function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onOpenLogSection, onLogSectionScore, onToggleReaction, onPrepare, onEdit, onDelete, onAthleteClick }) {
   const [expandedAthlete, setExpandedAthlete] = useState(null)
   const [demoVideo, setDemoVideo] = useState(null)
   const sections = (workout.workout_sections || []).sort((a, b) => a.order_index - b.order_index)
@@ -706,20 +753,7 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
                         )}
                       </div>
                         {m.notes && <div className="movement-notes-text">{m.notes}</div>}
-                        {sets.length > 0 && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                            <div style={{ fontSize: '13px', color: 'var(--charcoal-light)' }}>
-                              {summarizeSets(sets, m.scheme)}
-                            </div>
-                            <button
-                              className="btn-sm"
-                              style={{ fontSize: '11px', padding: '6px 12px' }}
-                              onClick={() => onOpenLogSets({ workout, section: sec, movement: m })}
-                            >
-                              Log Sets
-                            </button>
-                          </div>
-                        )}
+                        {sets.length > 0 && <div style={{ fontSize: '13px', color: 'var(--charcoal-light)', marginBottom: '6px' }}>{summarizeSets(sets, m.scheme)}</div>}
                         {sets.map((st, si) => {
                           const myLog = (st.set_logs || []).find(sl => sl.athlete_id === user.id)
                           const isAccessoryPrescription = sec.type === 'Accessory' && sets.length === 1 && st.reps && !st.load && !st.rpe
@@ -747,25 +781,12 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
                     )
                   })}
 
-                  {/* Section-level log for non-Heaviest-Set scored sections */}
-                  {scoreType !== 'No Score' && scoreType !== 'Heaviest Set' && (
-                    <SectionLogInput
-                      scoreType={scoreType}
-                      myLog={mySecLog}
-                      onSave={payload => onLogSectionScore(sec.id, workout.id, payload)}
-                    />
-                  )}
-
-                  {/* Notes/scaling box — always visible */}
-                  <SectionNotesInput
-                    myLog={mySecLog}
-                    onSave={notes => onLogSectionScore(sec.id, workout.id, {
-                      score: mySecLog?.score || null,
-                      rounds: mySecLog?.rounds || null,
-                      reps: mySecLog?.reps || null,
-                      notes
-                    })}
-                  />
+                  <div className="section-log-action">
+                    <button className="btn-sm" onClick={() => onOpenLogSection({ workout, section: sec })}>
+                      {mySecLog || (sec.movements || []).some(m => (m.sets || []).some(st => (st.set_logs || []).some(log => log.athlete_id === user.id))) ? `Edit ${sec.type} Log` : `Log ${sec.type}`}
+                    </button>
+                    {mySecLog?.notes && <span className="section-log-note-preview">Notes: {mySecLog.notes}</span>}
+                  </div>
 
                   {/* Movement-by-movement leaderboards for strength sections */}
                   {scoreType === 'Heaviest Set' && movementLeaderboards.map(board => (
@@ -800,6 +821,13 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
                 </div>
               )
             })}
+
+            <WorkoutHighFives
+              results={legacyResults}
+              userId={user.id}
+              onToggleReaction={onToggleReaction}
+              onAthleteClick={onAthleteClick}
+            />
 
             {/* Legacy results from old system */}
             {legacyResults.length > 0 && sections.every(s => !s.score_type || s.score_type === 'No Score') && (
@@ -836,6 +864,37 @@ function WorkoutCard({ workout, user, isCoach, isFuture, expanded, onToggle, onO
         </div>
       )}
     {demoVideo && <VideoModal url={demoVideo.url} title={demoVideo.title} onClose={() => setDemoVideo(null)} />}
+    </div>
+  )
+}
+
+function WorkoutHighFives({ results, userId, onToggleReaction, onAthleteClick }) {
+  const logged = (results || []).filter(result => result.athlete_id && result.profiles)
+  if (!logged.length) return null
+
+  return (
+    <div className="workout-high-fives">
+      <div className="lb-title">Athlete High Fives</div>
+      {logged.map(result => {
+        const highFives = (result.reactions || []).filter(reaction => reaction.type === 'highfive')
+        const hasReacted = highFives.some(reaction => reaction.athlete_id === userId)
+        const initials = (result.profiles?.name || '?').split(' ').map(name => name[0]).join('').toUpperCase().slice(0, 2)
+        return (
+          <div className="high-five-row" key={result.id}>
+            {result.profiles?.avatar_url
+              ? <img src={result.profiles.avatar_url} className="lb-avatar" alt="" />
+              : <div className="lb-avatar-placeholder">{initials}</div>}
+            <button className="high-five-athlete" onClick={() => onAthleteClick?.(result.athlete_id)}>{result.profiles?.name || 'Athlete'}</button>
+            <button
+              className={`reaction-btn high-five-button ${hasReacted ? 'reacted' : ''}`}
+              onClick={() => onToggleReaction(result.id, 'highfive', hasReacted)}
+              aria-label={`${hasReacted ? 'Remove' : 'Give'} high five to ${result.profiles?.name || 'athlete'}`}
+            >
+              ✋ <span>{highFives.length}</span>
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }

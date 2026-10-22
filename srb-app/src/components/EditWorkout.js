@@ -120,7 +120,7 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
 
   return (
     <div className="modal-wrap" onClick={e => { if (e.target.className === 'modal-wrap') onClose() }}>
-      <div className="modal" style={{ maxWidth: '680px' }}>
+      <div className="modal workout-editor-modal">
         <div className="modal-head">
           <div><div className="modal-title">Edit Workout</div><div className="modal-sub">{workout.title}</div></div>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -193,15 +193,15 @@ export default function EditWorkout({ workout, onSaved, onClose }) {
                     {mov.sets.map((st, sti) => (
                       <div key={sti} className="set-builder-row">
                         <span className="set-num-label">{st.set_number}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <div className="set-builder-field" data-label={prescriptionMeta.label}>
                           <input type="text" value={st.reps} onChange={e => updSet(si, mi, sti, 'reps', e.target.value)} placeholder={prescriptionMeta.placeholder} style={{ flex: 1 }} />
                           {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'reps')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <div className="set-builder-field" data-label="Load / %">
                           <input type="text" value={st.load} onChange={e => updSet(si, mi, sti, 'load', e.target.value)} placeholder={sec.type === 'Accessory' ? 'optional' : '90% or 185 lbs'} style={{ flex: 1 }} />
                           {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'load')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                        <div className="set-builder-field" data-label="RPE">
                           <input type="text" value={st.rpe} onChange={e => updSet(si, mi, sti, 'rpe', e.target.value)} placeholder={sec.type === 'Accessory' ? 'optional' : '8'} style={{ flex: 1 }} />
                           {sti < mov.sets.length - 1 && <button onClick={() => copyDown(si, mi, sti, 'rpe')} title="Copy to all below" style={{ background: 'none', border: 'none', color: 'var(--charcoal-light)', cursor: 'pointer', fontSize: '12px', padding: '2px', flexShrink: 0 }}>↓</button>}
                         </div>
