@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import Auth from './components/Auth'
+import UpdatePassword from './components/UpdatePassword'
 import Nav from './components/Nav'
 import Workouts from './components/Workouts'
 import PostWorkout from './components/PostWorkout'
@@ -33,6 +34,7 @@ function AppMain() {
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('workouts')
   const [loading, setLoading] = useState(true)
+  const [passwordRecovery, setPasswordRecovery] = useState(window.location.pathname === '/reset')
 
   useEffect(() => {
     if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {})
@@ -41,7 +43,8 @@ function AppMain() {
       if (session) fetchProfile(session.user.id)
       else setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setPasswordRecovery(true)
       setSession(session)
       if (session) fetchProfile(session.user.id)
       else { setProfile(null); setLoading(false) }
@@ -69,6 +72,20 @@ function AppMain() {
       </div>
     </div>
   )
+
+  if (passwordRecovery) {
+    return (
+      <div className="app">
+        <UpdatePassword
+          session={session}
+          onComplete={() => {
+            window.history.replaceState({}, '', '/')
+            setPasswordRecovery(false)
+          }}
+        />
+      </div>
+    )
+  }
 
   if (!session) return <div className="app"><Auth /></div>
 

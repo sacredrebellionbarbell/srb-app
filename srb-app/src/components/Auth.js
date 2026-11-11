@@ -42,7 +42,7 @@ export default function Auth() {
       redirectTo: window.location.origin + '/reset'
     })
     if (error) setErr(error.message)
-    else setMsg('Password reset email sent — check your inbox.')
+    else setMsg('Password reset email sent. Open the link, choose a new password, then sign in from your Home Screen app.')
     setLoading(false)
   }
 
