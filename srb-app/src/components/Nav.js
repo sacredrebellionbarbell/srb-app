@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { isPaidMember } from '../utils/access'
 
 const logo = process.env.PUBLIC_URL + '/logo.jpg'
 
 const NAV_ITEMS = [
   { id: 'workouts', label: 'Training', icon: '◉', coachOnly: false },
   { id: 'schedule', label: 'Schedule', icon: '▦', coachOnly: false },
+  { id: 'nutrition', label: 'Nutrition', icon: '◐', coachOnly: false, memberOnly: true },
   { id: 'profile', label: 'Profile', icon: '●', coachOnly: false },
   { id: 'programs', label: 'Programs', icon: '📂', coachOnly: false },
   { id: 'resources', label: 'Resources', icon: '🔗', coachOnly: false },
@@ -46,9 +48,10 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
     setOpen(false)
   }
 
-  const visibleItems = NAV_ITEMS.filter(item => !item.coachOnly || isCoach)
+  const visibleItems = NAV_ITEMS.filter(item => (!item.coachOnly || isCoach) && (!item.memberOnly || isCoach || isPaidMember(profile)))
   const currentItem = NAV_ITEMS.find(item => item.id === tab)
-  const bottomItems = NAV_ITEMS.filter(item => ['workouts', 'schedule', 'profile'].includes(item.id))
+  const bottomIds = isCoach || isPaidMember(profile) ? ['workouts', 'schedule', 'nutrition'] : ['workouts', 'schedule', 'profile']
+  const bottomItems = visibleItems.filter(item => bottomIds.includes(item.id))
 
   return (
     <>
@@ -133,7 +136,7 @@ export default function Nav({ user, profile, tab, setTab, onLogout }) {
         <nav style={{ flex: 1, padding: '0.75rem 0' }}>
           {/* Athlete items */}
           <div style={{ padding: '0 0.75rem', marginBottom: '0.5rem' }}>
-            {visibleItems.filter(i => !i.coachOnly && !['workouts', 'schedule', 'profile'].includes(i.id)).map(item => (
+            {visibleItems.filter(i => !i.coachOnly && !['workouts', 'schedule', 'nutrition'].includes(i.id)).map(item => (
               <button
                 key={item.id}
                 onClick={() => handleTabChange(item.id)}

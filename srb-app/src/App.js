@@ -19,6 +19,7 @@ import AthleteMomentum from './components/AthleteMomentum'
 import SheetImport from './components/SheetImport'
 import CommandCenter from './components/CommandCenter'
 import CoachPlanner from './components/CoachPlanner'
+import Nutrition from './components/Nutrition'
 import { isPaidMember } from './utils/access'
 
 function KioskWrapper() {
@@ -122,6 +123,7 @@ function AppMain() {
         {tab === 'post' && isCoach && <PostWorkout user={session.user} onPosted={() => {}} />}
         {tab === 'programs' && <Programs user={session.user} profile={profile} />}
         {tab === 'resources' && <Resources user={session.user} profile={profile} />}
+        {tab === 'nutrition' && (isCoach || isPaidMember(profile)) && <Nutrition user={session.user} profile={profile} />}
         {tab === 'photo' && isCoach && <PhotoWorkout user={session.user} onPosted={() => setTab('workouts')} />}
         {tab === 'sheet-import' && isCoach && <SheetImport />}
         {tab === 'crm' && isCoach && <CRM user={session.user} />}
