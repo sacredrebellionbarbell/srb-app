@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { isPaidMember } from '../utils/access'
 import { notifyCoach } from '../utils/notifyCoach'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -291,14 +292,15 @@ function CoachNutrition({ user }) {
 
   useEffect(() => {
     Promise.all([
-      supabase.from('profiles').select('id, name, email, membership_type').neq('role', 'coach').order('name'),
+      supabase.from('profiles').select('id, name, email, role, membership_type').order('name'),
       supabase.from('nutrition_diary_days').select('athlete_id, log_date, completed_at, profiles(name)').not('completed_at', 'is', null).order('completed_at', { ascending: false }).limit(30)
     ]).then(([profiles, diaries]) => {
-      setAthletes(profiles.data || [])
-      setSelectedId(profiles.data?.[0]?.id || '')
+      const eligibleProfiles = (profiles.data || []).filter(profile => profile.role === 'coach' || isPaidMember(profile))
+      setAthletes(eligibleProfiles)
+      setSelectedId(eligibleProfiles.find(profile => profile.id === user.id)?.id || eligibleProfiles[0]?.id || '')
       setCompleted(diaries.data || [])
     })
-  }, [])
+  }, [user.id])
 
   useEffect(() => {
     if (!selectedId) return
@@ -321,7 +323,7 @@ function CoachNutrition({ user }) {
   return <div>
     <div className="panel nutrition-coach-targets">
       <div className="panel-title">Athlete Targets</div>
-      <div className="field"><label>Athlete</label><select value={selectedId} onChange={event => setSelectedId(event.target.value)}>{athletes.map(athlete => <option key={athlete.id} value={athlete.id}>{athlete.name || athlete.email}</option>)}</select></div>
+      <div className="field"><label>Athlete or Coach</label><select value={selectedId} onChange={event => setSelectedId(event.target.value)}>{athletes.map(athlete => <option key={athlete.id} value={athlete.id}>{athlete.name || athlete.email}{athlete.role === 'coach' ? ' (Coach)' : ''}</option>)}</select></div>
       <div className="nutrition-fields nutrition-macro-fields">
         <label>Calories<input type="number" min="0" value={target.calorie_target} onChange={event => setTarget({ ...target, calorie_target: event.target.value })} /></label>
         <label>Protein (g)<input type="number" min="0" value={target.protein_target} onChange={event => setTarget({ ...target, protein_target: event.target.value })} /></label>
