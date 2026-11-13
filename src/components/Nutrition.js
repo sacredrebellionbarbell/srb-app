@@ -224,10 +224,12 @@ function ConfirmationModal({ foods, setFoods, onClose, onSave, saving }) {
 }
 
 function AddFoodModal({ onClose, onConfirm }) {
-  const [mode, setMode] = useState('choices')
+  const [mode, setMode] = useState('frequent')
   const [manual, setManual] = useState({ ...EMPTY_FOOD, meal: 'Meal' })
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
+  const [frequentFoods, setFrequentFoods] = useState([])
+  const [frequentLoading, setFrequentLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [scannerActive, setScannerActive] = useState(false)
@@ -235,7 +237,27 @@ function AddFoodModal({ onClose, onConfirm }) {
   const controlsRef = useRef(null)
   const barcodeHandledRef = useRef(false)
 
-  useEffect(() => () => controlsRef.current?.stop(), [])
+  useEffect(() => {
+    let active = true
+    supabase.from('nutrition_entries')
+      .select('food_name, serving_amount, serving_unit, calories, protein, carbs, fat, meal, source, source_id, confidence, notes, created_at')
+      .order('created_at', { ascending: false })
+      .limit(300)
+      .then(({ data, error }) => {
+        if (!active) return
+        if (error) setError(error.message)
+        const grouped = new Map()
+        ;(data || []).forEach(food => {
+          const key = `${food.food_name.trim().toLowerCase()}|${(food.serving_unit || '').trim().toLowerCase()}`
+          const existing = grouped.get(key)
+          if (existing) existing.count += 1
+          else grouped.set(key, { ...food, count: 1 })
+        })
+        setFrequentFoods([...grouped.values()].sort((a, b) => b.count - a.count || new Date(b.created_at) - new Date(a.created_at)).slice(0, 15))
+        setFrequentLoading(false)
+      })
+    return () => { active = false; controlsRef.current?.stop() }
+  }, [])
 
   const lookup = async url => {
     setBusy(true); setError('')
@@ -305,9 +327,26 @@ function AddFoodModal({ onClose, onConfirm }) {
           <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         <div className="modal-body">
-          {mode !== 'choices' && <button className="nutrition-back" onClick={() => { controlsRef.current?.stop(); setMode('choices'); setScannerActive(false); setError('') }}>‹ All options</button>}
+          <div className="nutrition-add-tabs" role="tablist" aria-label="Food logging options">
+            <button className={mode === 'frequent' ? 'active' : ''} onClick={() => { controlsRef.current?.stop(); setMode('frequent'); setScannerActive(false); setError('') }}>Frequently Logged</button>
+            <button className={mode === 'choices' ? 'active' : ''} onClick={() => { controlsRef.current?.stop(); setMode('choices'); setScannerActive(false); setError('') }}>Add New</button>
+          </div>
+          {!['choices', 'frequent'].includes(mode) && <button className="nutrition-back" onClick={() => { controlsRef.current?.stop(); setMode('choices'); setScannerActive(false); setError('') }}>‹ Add New options</button>}
           {error && <div className="auth-error">{error}</div>}
           {busy && <div className="nutrition-analyzing">Analyzing...</div>}
+
+          {mode === 'frequent' && <div className="nutrition-frequent-list">
+            {frequentLoading && <div className="nutrition-analyzing">Loading your foods...</div>}
+            {!frequentLoading && !frequentFoods.length && <div className="nutrition-frequent-empty">
+              <strong>No frequently logged foods yet</strong>
+              <small>Foods you log will appear here for quick reuse.</small>
+              <button className="btn-primary" onClick={() => setMode('choices')}>Add Your First Food</button>
+            </div>}
+            {frequentFoods.map(food => <button key={`${food.food_name}-${food.serving_unit}`} onClick={() => onConfirm([foodDraft(food)])}>
+              <span><strong>{food.food_name}</strong><small>{food.serving_amount || 1} {food.serving_unit || 'serving'} · {rounded(food.calories)} calories</small></span>
+              <em>{food.count}×</em>
+            </button>)}
+          </div>}
 
           {mode === 'choices' && <div className="nutrition-add-choices">
             <button onClick={() => setMode('manual')}><span>+</span><strong>Add Food</strong><small>Enter nutrition from a label or recipe</small></button>
@@ -540,6 +579,18 @@ export default function Nutrition({ user, profile }) {
     <style>{`
       .nutrition-view-tabs{display:flex;gap:8px;margin-bottom:1.25rem}.nutrition-date-nav{margin-bottom:1.25rem}.nutrition-date-label{min-width:280px;border:0;background:transparent;color:var(--bone);cursor:pointer}.nutrition-date-label strong,.nutrition-date-label small{display:block}.nutrition-date-label strong{font-family:'Cinzel',serif;font-size:20px;color:var(--gold-light)}.nutrition-date-label small{font-size:12px;color:var(--charcoal-light);margin-top:2px}.nutrition-summary{display:grid;grid-template-columns:190px 1fr;gap:28px;align-items:center}.nutrition-calorie-ring{width:170px;height:170px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--gold) var(--progress),rgba(255,248,236,.12) 0);position:relative}.nutrition-calorie-ring:after{content:'';position:absolute;inset:13px;border-radius:50%;background:#454139}.nutrition-calorie-ring>div{position:relative;z-index:1;text-align:center}.nutrition-calorie-ring strong,.nutrition-calorie-ring span{display:block}.nutrition-calorie-ring strong{font-family:'Cinzel',serif;font-size:35px;color:var(--gold-light)}.nutrition-calorie-ring span{font-size:13px;color:var(--charcoal-light)}.nutrition-goals{display:grid;gap:16px}.nutrition-goal-head{display:flex;justify-content:space-between;gap:12px;font-size:14px}.nutrition-goal-head strong{font-family:'Cinzel',serif;color:var(--bone)}.nutrition-goal-head span,.nutrition-goal small{color:var(--charcoal-light)}.nutrition-goal small{display:block;font-size:12px;margin-top:4px}.nutrition-progress{height:9px;background:rgba(255,248,236,.12);margin-top:6px}.nutrition-progress span{display:block;height:100%;background:var(--moss-light)}.nutrition-no-target{grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px;color:var(--charcoal-light);font-size:14px}.nutrition-empty{text-align:center}.nutrition-empty-mark{width:58px;height:58px;border:1px solid var(--gold-dark);display:grid;place-items:center;margin:0 auto 14px;font-size:34px;color:var(--gold-light)}.nutrition-empty h3{font-family:'Cinzel',serif;color:var(--gold-light);margin:0}.nutrition-empty p{color:var(--charcoal-light);font-size:15px}.nutrition-empty-actions{display:grid;gap:9px;max-width:440px;margin:20px auto 0}.nutrition-meals{display:grid;gap:14px}.nutrition-meal{padding:0!important;overflow:hidden}.nutrition-meal-title{display:flex;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}.nutrition-meal-title strong{font-family:'Cinzel',serif;color:var(--gold-light)}.nutrition-meal-title span{color:var(--charcoal-light);font-size:14px}.nutrition-entry{display:grid;grid-template-columns:1fr auto 38px;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid rgba(242,221,170,.18)}.nutrition-entry:last-child{border-bottom:0}.nutrition-entry strong,.nutrition-entry small{display:block}.nutrition-entry strong{font-size:16px;color:var(--bone)}.nutrition-entry small{font-size:13px;color:var(--charcoal-light);margin-top:3px}.nutrition-entry>span{font-family:'Cinzel',serif;color:var(--gold-light)}.nutrition-entry>button{border:0;background:transparent;color:var(--rose-light);font-size:26px;cursor:pointer}.nutrition-add-more{max-width:440px;margin:4px auto 0}.nutrition-finish{width:100%;margin:18px 0;border:1px solid var(--moss-light);background:rgba(130,144,106,.18);color:var(--bone);padding:16px;font-family:'Cinzel',serif;font-size:16px;cursor:pointer}.nutrition-finish:disabled{opacity:.6;cursor:default}.nutrition-celebration{display:flex;align-items:center;gap:14px;border:1px solid var(--moss);background:rgba(130,144,106,.14);padding:14px 18px;margin-bottom:14px}.nutrition-celebration.goals-met{border-color:var(--gold);background:rgba(215,184,111,.12)}.nutrition-celebration>span{font-size:32px;color:var(--gold-light)}.nutrition-celebration strong,.nutrition-celebration small{display:block}.nutrition-celebration strong{font-family:'Cinzel',serif;color:var(--gold-light)}.nutrition-celebration small{font-size:13px;color:var(--charcoal-light)}.nutrition-add-modal,.nutrition-confirm-modal{max-width:760px}.nutrition-add-choices{display:grid;gap:10px}.nutrition-add-choices button,.nutrition-add-choices label{display:grid;grid-template-columns:48px 1fr;gap:2px 12px;text-align:left;align-items:center;border:1px solid var(--border);background:rgba(255,248,236,.05);color:var(--bone);padding:15px;cursor:pointer}.nutrition-add-choices span{grid-row:1/3;font-family:'Cinzel',serif;font-size:28px;color:var(--gold-light);text-align:center}.nutrition-add-choices strong{font-family:'Cinzel',serif;font-size:16px}.nutrition-add-choices small{font-size:13px;color:var(--charcoal-light)}.nutrition-add-choices input{display:none}.nutrition-back{border:0;background:transparent;color:var(--gold-light);font-size:15px;cursor:pointer;margin-bottom:14px}.nutrition-fields{display:grid;gap:10px;margin:14px 0}.nutrition-serving-fields{grid-template-columns:1fr 1fr 1.2fr}.nutrition-macro-fields{grid-template-columns:repeat(4,1fr)}.nutrition-fields label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--charcoal-light)}.nutrition-fields input,.nutrition-fields select,.nutrition-confirm-top input,.nutrition-search input{width:100%;display:block;margin-top:5px;background:rgba(255,248,236,.12);border:1px solid var(--border-strong);color:var(--bone);font-size:17px;padding:10px}.nutrition-fields select option{background:var(--charcoal)}.nutrition-search{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0}.nutrition-search input{margin:0}.nutrition-search-results{display:grid;gap:7px;margin:12px 0;max-height:45vh;overflow:auto}.nutrition-search-results button{border:1px solid var(--border);background:rgba(255,248,236,.04);padding:11px;text-align:left;color:var(--bone);cursor:pointer}.nutrition-search-results strong,.nutrition-search-results small{display:block}.nutrition-search-results small{color:var(--charcoal-light);margin-top:3px}.nutrition-scanner{width:100%;max-height:360px;object-fit:cover;border:1px solid var(--gold);background:#111}.nutrition-analyzing{text-align:center;color:var(--gold-light);padding:18px;font-family:'Cinzel',serif}.nutrition-confirm-food{border:1px solid var(--border);background:rgba(255,248,236,.035);padding:14px;margin-bottom:12px}.nutrition-confirm-top{display:grid;grid-template-columns:1fr auto;gap:8px}.nutrition-confirm-top input{margin:0}.nutrition-estimate-note,.nutrition-estimate-warning{font-size:12px;color:var(--charcoal-light);margin-top:8px}.nutrition-estimate-warning{color:var(--gold-light)}.nutrition-extra-button{width:100%;border:1px dashed var(--gold-dark);background:transparent;color:var(--gold-light);padding:12px;cursor:pointer}.nutrition-extra-picker{border:1px dashed var(--gold-dark);padding:12px}.nutrition-extra-picker label,.nutrition-extra-picker small{display:block}.nutrition-extra-picker label{font-size:12px;text-transform:uppercase;color:var(--charcoal-light)}.nutrition-extra-picker select{width:100%;margin-top:6px;background:rgba(255,248,236,.12);border:1px solid var(--border-strong);color:var(--bone);font-size:16px;padding:10px}.nutrition-extra-picker select option{background:var(--charcoal)}.nutrition-extra-picker small{margin-top:7px;color:var(--charcoal-light)}.nutrition-confirm-total{text-align:center;padding:16px}.nutrition-confirm-total strong,.nutrition-confirm-total span{display:block}.nutrition-confirm-total strong{font-family:'Cinzel',serif;color:var(--gold-light);font-size:22px}.nutrition-confirm-total span{font-size:13px;color:var(--charcoal-light)}.nutrition-save-message{text-align:center;color:var(--moss-light);margin-top:10px}.nutrition-closed-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px}.nutrition-closed-row strong{color:var(--bone)}.nutrition-closed-row span{color:var(--charcoal-light)}
       @media(max-width:640px){.nutrition-summary{grid-template-columns:1fr}.nutrition-calorie-ring{margin:auto}.nutrition-serving-fields{grid-template-columns:1fr 1fr}.nutrition-serving-fields label:last-child{grid-column:1/-1}.nutrition-macro-fields{grid-template-columns:1fr 1fr}.nutrition-date-label{min-width:0;flex:1}.nutrition-date-label strong{font-size:16px}.nutrition-confirm-modal .modal-body,.nutrition-add-modal .modal-body{padding:1rem}.nutrition-entry{padding:12px}.nutrition-add-choices button,.nutrition-add-choices label{grid-template-columns:40px 1fr;padding:12px}.nutrition-add-choices span{font-size:24px}}
+    `}</style>
+    <style>{`
+      .nutrition-add-tabs{display:grid;grid-template-columns:1fr 1fr;margin-bottom:16px;border-bottom:1px solid var(--border)}
+      .nutrition-add-tabs button{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--charcoal-light);padding:11px 8px;font-family:'Cinzel',serif;font-size:14px;cursor:pointer}
+      .nutrition-add-tabs button.active{border-bottom-color:var(--gold);color:var(--gold-light)}
+      .nutrition-frequent-list{display:grid;gap:8px}
+      .nutrition-frequent-list>button{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);background:rgba(255,248,236,.05);color:var(--bone);padding:13px 14px;text-align:left;cursor:pointer}
+      .nutrition-frequent-list strong,.nutrition-frequent-list small{display:block}
+      .nutrition-frequent-list strong{font-size:16px}.nutrition-frequent-list small{margin-top:4px;color:var(--charcoal-light);font-size:13px}
+      .nutrition-frequent-list em{flex:0 0 auto;border:1px solid var(--gold-dark);color:var(--gold-light);font-style:normal;font-size:12px;padding:4px 7px}
+      .nutrition-frequent-empty{text-align:center;padding:24px 8px}.nutrition-frequent-empty strong,.nutrition-frequent-empty small{display:block}
+      .nutrition-frequent-empty strong{font-family:'Cinzel',serif;color:var(--gold-light)}.nutrition-frequent-empty small{color:var(--charcoal-light);margin:7px 0 18px}
     `}</style>
   </div>
 }
