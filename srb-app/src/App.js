@@ -22,6 +22,22 @@ import CoachPlanner from './components/CoachPlanner'
 import Nutrition from './components/Nutrition'
 import { isPaidMember } from './utils/access'
 
+const LAST_TAB_KEY = 'srb-last-tab'
+const APP_TABS = new Set([
+  'command', 'workouts', 'schedule', 'planner', 'post', 'programs',
+  'resources', 'nutrition', 'photo', 'sheet-import', 'crm', 'shop', 'profile'
+])
+const COACH_TABS = new Set(['command', 'planner', 'post', 'photo', 'sheet-import', 'crm'])
+
+function getSavedTab() {
+  try {
+    const savedTab = window.localStorage.getItem(LAST_TAB_KEY)
+    return APP_TABS.has(savedTab) ? savedTab : 'workouts'
+  } catch {
+    return 'workouts'
+  }
+}
+
 function KioskWrapper() {
   if (window.location.pathname === '/kiosk') return <Kiosk />
   if (window.location.pathname === '/supertotal') return <SupertotalRegistration />
@@ -33,7 +49,7 @@ export default KioskWrapper
 function AppMain() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [tab, setTab] = useState('workouts')
+  const [tab, setTab] = useState(getSavedTab)
   const [loading, setLoading] = useState(true)
   const [passwordRecovery, setPasswordRecovery] = useState(window.location.pathname === '/reset')
 
@@ -52,6 +68,23 @@ function AppMain() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LAST_TAB_KEY, tab)
+    } catch {
+      // The app still works when private browsing blocks local storage.
+    }
+  }, [tab])
+
+  useEffect(() => {
+    if (!profile) return
+    const isCoach = profile.role === 'coach'
+    const canUseNutrition = isCoach || isPaidMember(profile)
+    if ((COACH_TABS.has(tab) && !isCoach) || (tab === 'nutrition' && !canUseNutrition)) {
+      setTab('workouts')
+    }
+  }, [profile, tab])
 
   const fetchProfile = async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
