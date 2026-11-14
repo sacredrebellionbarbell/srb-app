@@ -34,6 +34,10 @@ function rounded(value) {
   return Math.round(num(value))
 }
 
+function oneDecimal(value) {
+  return Math.round(num(value) * 10) / 10
+}
+
 function foodDraft(food = {}) {
   return {
     ...EMPTY_FOOD,
@@ -42,9 +46,9 @@ function foodDraft(food = {}) {
     serving_amount: food.serving_amount ?? food.amount ?? 1,
     serving_unit: food.serving_unit || food.unit || 'serving',
     calories: rounded(food.calories),
-    protein: rounded(food.protein),
-    carbs: rounded(food.carbs),
-    fat: rounded(food.fat),
+    protein: oneDecimal(food.protein),
+    carbs: oneDecimal(food.carbs),
+    fat: oneDecimal(food.fat),
     confidence: food.confidence == null ? null : num(food.confidence),
     notes: food.notes || food.note || '',
     source_id: food.source_id || food.id || null
@@ -162,7 +166,9 @@ function ConfirmationModal({ foods, setFoods, onClose, onSave, saving }) {
     setFoods(current => [...current, foodDraft({
       ...extra,
       food_name: extra.name,
+      source: 'search',
       source_id: extra.id,
+      notes: `USDA FoodData Central · ${extra.servingLabel}`,
       meal: current[0]?.meal || 'Meal'
     })])
     setExtrasOpen(false)
@@ -456,6 +462,7 @@ export default function Nutrition({ user, profile }) {
   const [addOpen, setAddOpen] = useState(false)
   const [confirmFoods, setConfirmFoods] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [savingGoals, setSavingGoals] = useState(false)
   const [toast, setToast] = useState('')
 
   const loadDay = useCallback(async () => {
@@ -479,6 +486,20 @@ export default function Nutrition({ user, profile }) {
   const goalsMet = hasTargets && closeEnough(totals.calories, num(target.calorie_target)) && closeEnough(totals.protein, num(target.protein_target)) && closeEnough(totals.carbs, num(target.carb_target)) && closeEnough(totals.fat, num(target.fat_target))
 
   const beginConfirm = foods => { setAddOpen(false); setConfirmFoods(foods.map(foodDraft)) }
+  const saveOwnGoals = async () => {
+    setSavingGoals(true)
+    const { error } = await supabase.from('nutrition_targets').upsert({
+      athlete_id: user.id,
+      calorie_target: rounded(target.calorie_target),
+      protein_target: oneDecimal(target.protein_target),
+      carb_target: oneDecimal(target.carb_target),
+      fat_target: oneDecimal(target.fat_target),
+      updated_by: user.id,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'athlete_id' })
+    setSavingGoals(false)
+    setToast(error ? error.message : 'Daily goals saved.')
+  }
   const saveFoods = async () => {
     setSaving(true)
     const payload = confirmFoods.map(food => ({
@@ -545,6 +566,18 @@ export default function Nutrition({ user, profile }) {
         {!hasTargets && <div className="nutrition-no-target">Your coach has not set nutrition targets yet. You can still log food.</div>}
       </div>
 
+      <details className="panel nutrition-own-goals">
+        <summary>My Daily Goals</summary>
+        <div className="modal-sub">Use goals from your coach or enter your own.</div>
+        <div className="nutrition-fields nutrition-macro-fields">
+          <label>Calories<input type="number" min="0" value={target.calorie_target} onChange={event => setTarget({ ...target, calorie_target: event.target.value })} /></label>
+          <label>Protein (g)<input type="number" min="0" value={target.protein_target} onChange={event => setTarget({ ...target, protein_target: event.target.value })} /></label>
+          <label>Carbs (g)<input type="number" min="0" value={target.carb_target} onChange={event => setTarget({ ...target, carb_target: event.target.value })} /></label>
+          <label>Fat (g)<input type="number" min="0" value={target.fat_target} onChange={event => setTarget({ ...target, fat_target: event.target.value })} /></label>
+        </div>
+        <button className="btn-primary" disabled={savingGoals} onClick={saveOwnGoals}>{savingGoals ? 'Saving...' : 'Save My Goals'}</button>
+      </details>
+
       {!entries.length ? <div className="panel nutrition-empty">
         <div className="nutrition-empty-mark">+</div>
         <h3>Start today’s diary</h3>
@@ -581,6 +614,7 @@ export default function Nutrition({ user, profile }) {
       @media(max-width:640px){.nutrition-summary{grid-template-columns:1fr}.nutrition-calorie-ring{margin:auto}.nutrition-serving-fields{grid-template-columns:1fr 1fr}.nutrition-serving-fields label:last-child{grid-column:1/-1}.nutrition-macro-fields{grid-template-columns:1fr 1fr}.nutrition-date-label{min-width:0;flex:1}.nutrition-date-label strong{font-size:16px}.nutrition-confirm-modal .modal-body,.nutrition-add-modal .modal-body{padding:1rem}.nutrition-entry{padding:12px}.nutrition-add-choices button,.nutrition-add-choices label{grid-template-columns:40px 1fr;padding:12px}.nutrition-add-choices span{font-size:24px}}
     `}</style>
     <style>{`
+      .nutrition-own-goals{margin-top:14px}.nutrition-own-goals summary{cursor:pointer;font-family:'Cinzel',serif;color:var(--gold-light);font-size:16px}.nutrition-own-goals[open] summary{margin-bottom:8px}.nutrition-own-goals .btn-primary{max-width:260px}
       .nutrition-add-tabs{display:grid;grid-template-columns:1fr 1fr;margin-bottom:16px;border-bottom:1px solid var(--border)}
       .nutrition-add-tabs button{border:0;border-bottom:3px solid transparent;background:transparent;color:var(--charcoal-light);padding:11px 8px;font-family:'Cinzel',serif;font-size:14px;cursor:pointer}
       .nutrition-add-tabs button.active{border-bottom-color:var(--gold);color:var(--gold-light)}
