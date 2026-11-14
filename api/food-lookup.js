@@ -11,6 +11,31 @@ const COOKING_FATS = [
   { id: '171409', name: 'Avocado oil', amount: 1, unit: 'tbsp', servingLabel: '1 tbsp (14 g)', calories: 124, protein: 0, carbs: 0, fat: 14 }
 ].map(food => ({ ...food, source: 'USDA FoodData Central' }))
 
+// Official restaurant items that are not currently indexed by USDA or Open Food Facts.
+const CURATED_FOODS = [
+  {
+    id: 'starbucks-1254',
+    name: 'Iced Lemon Loaf',
+    brand: 'Starbucks',
+    amount: 1,
+    unit: 'piece',
+    servingLabel: '1 loaf (115 g)',
+    calories: 410,
+    protein: 5,
+    carbs: 59,
+    fat: 17,
+    aliases: ['starbucks lemon loaf', 'starbucks iced lemon loaf', 'iced lemon loaf', 'lemon loaf'],
+    source: 'Starbucks US menu'
+  }
+]
+
+function curatedMatches(query) {
+  const normalized = query.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  if (!normalized) return []
+  return CURATED_FOODS.filter(food => food.aliases.some(alias => alias.includes(normalized) || normalized.includes(alias)))
+    .map(({ aliases, ...food }) => food)
+}
+
 async function authenticatedUser(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
   if (!token) return null
@@ -81,6 +106,8 @@ export default async function handler(req, res) {
     }
 
     if (query.length < 2) return res.status(400).json({ error: 'Enter at least two letters.' })
+    const curated = curatedMatches(query)
+    if (curated.length) return res.status(200).json({ foods: curated })
     if (process.env.USDA_API_KEY) {
       const response = await fetch('https://api.nal.usda.gov/fdc/v1/foods/search?api_key=' + encodeURIComponent(process.env.USDA_API_KEY), {
         method: 'POST',
